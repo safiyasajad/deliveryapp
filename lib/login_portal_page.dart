@@ -89,8 +89,21 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
       // Later, this is also where you can save responseBody['accessToken'] for
       // customer API requests that require Authorization: Bearer <token>.
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        final accessToken = _getAccessToken(responseBody);
+        final loginResponseName = _getUserDisplayName(responseBody);
+        final fallbackName = _isGenericDisplayName(loginResponseName)
+            ? _firstNamePart(email)
+            : loginResponseName;
+        final userName = accessToken.isEmpty
+            ? fallbackName
+            : await _fetchPersonalInfoUserName(
+                apiBaseUrl: apiBaseUrl,
+                accessToken: accessToken,
+                fallbackName: fallbackName,
+              );
+
         _showMessage(responseBody['message'] as String? ?? 'Login successful.');
-        _openDashboard();
+        _openDashboard(userName: userName, accessToken: accessToken);
         return;
       }
 
@@ -138,16 +151,191 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
     return decoded is Map<String, dynamic> ? decoded : const {};
   }
 
-  void _openDashboard() {
+  String _getAccessToken(Map<String, dynamic> responseBody) {
+    // The live API may return the token directly or inside a data wrapper.
+    return _firstStringFromPaths(responseBody, const [
+      ['accessToken'],
+      ['access_token'],
+      ['token'],
+      ['data', 'accessToken'],
+      ['data', 'access_token'],
+      ['data', 'token'],
+    ]);
+  }
+
+  String _getUserDisplayName(Map<String, dynamic> responseBody) {
+    // Try to read the name from the login response first.
+    // If it is not there, the personal-info request can still provide it.
+    final user =
+        _firstNestedMapFromPaths(responseBody, const [
+          ['user'],
+          ['data', 'user'],
+          ['data'],
+        ]) ??
+        responseBody;
+
+    return _displayNameFromMap(user, fallback: 'User');
+  }
+
+  Future<String> _fetchPersonalInfoUserName({
+    required String apiBaseUrl,
+    required String accessToken,
+    required String fallbackName,
+  }) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$apiBaseUrl/user/personal-info'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $accessToken',
+        },
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return fallbackName;
+      }
+
+      final personalInfo = _decodeResponseBody(response.body);
+      final profile =
+          _firstNestedMapFromPaths(personalInfo, const [
+            ['data'],
+            ['result'],
+            ['user'],
+            ['profile'],
+            ['personalInfo'],
+          ]) ??
+          personalInfo;
+
+      final personalInfoName = _displayNameFromMap(profile, fallback: '');
+      return _isGenericDisplayName(personalInfoName)
+          ? fallbackName
+          : personalInfoName;
+    } catch (_) {
+      return fallbackName;
+    }
+  }
+
+  String _displayNameFromMap(
+    Map<String, dynamic> source, {
+    required String fallback,
+  }) {
+    final fullName = _firstStringFromKeys(source, const [
+      'name',
+      'fullName',
+      'full_name',
+      'displayName',
+      'display_name',
+    ]);
+
+    if (fullName.isNotEmpty) {
+      final displayName = _firstNamePart(fullName);
+      if (!_isGenericDisplayName(displayName)) return displayName;
+    }
+
+    final firstName = _firstStringFromKeys(source, const [
+      'firstName',
+      'first_name',
+      'firstname',
+    ]);
+    if (firstName.isNotEmpty) {
+      final displayName = _firstNamePart(firstName);
+      if (!_isGenericDisplayName(displayName)) return displayName;
+    }
+
+    final email = _firstStringFromKeys(source, const ['email']);
+    if (email.isNotEmpty) return _firstNamePart(email);
+
+    return fallback;
+  }
+
+  String _firstNamePart(String value) {
+    // "safiya sa" becomes "safiya", and "safiya@techorin.net" becomes
+    // "safiya" for the dashboard greeting.
+    final beforeEmailDomain = value.trim().split('@').first.trim();
+    final firstWord = beforeEmailDomain.split(RegExp(r'\s+')).first.trim();
+    return firstWord.isEmpty ? value.trim() : firstWord;
+  }
+
+  bool _isGenericDisplayName(String value) {
+    final normalizedValue = value.trim().toLowerCase();
+    return normalizedValue.isEmpty || normalizedValue == 'user';
+  }
+
+  Map<String, dynamic>? _firstNestedMapFromPaths(
+    Map<String, dynamic> source,
+    List<List<String>> paths,
+  ) {
+    for (final path in paths) {
+      final value = _valueAtPath(source, path);
+      if (value is Map<String, dynamic>) return value;
+    }
+
+    return null;
+  }
+
+  String _firstStringFromKeys(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = (source[key] as String? ?? '').trim();
+      if (value.isNotEmpty) return value;
+    }
+
+    return '';
+  }
+
+  String _firstStringFromPaths(
+    Map<String, dynamic> source,
+    List<List<String>> paths,
+  ) {
+    for (final path in paths) {
+      final value = (_valueAtPath(source, path) as String? ?? '').trim();
+      if (value.isNotEmpty) return value;
+    }
+
+    return '';
+  }
+
+  Object? _valueAtPath(Map<String, dynamic> source, List<String> path) {
+    Object? current = source;
+
+    for (final key in path) {
+      if (current is! Map<String, dynamic>) return null;
+      current = current[key];
+    }
+
+    return current;
+  }
+
+  Future<void> _openDashboard({
+    required String userName,
+    required String accessToken,
+  }) async {
     if (!mounted) return;
+    final displayName = userName.trim().isEmpty ? 'User' : userName.trim();
 
     // Open the dashboard after successful login.
     // The dashboard logout icon pops this route and returns to the login page.
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => const DeliveryDashboardPage(),
+        builder: (context) => DeliveryDashboardPage(
+          userName: displayName,
+          accessToken: accessToken,
+        ),
       ),
     );
+
+    _clearLoginForm();
+  }
+
+  void _clearLoginForm() {
+    if (!mounted) return;
+
+    // Clear login details after logout/back navigation so the next session
+    // starts with a blank email and password form.
+    setState(() {
+      _emailController.clear();
+      _passwordController.clear();
+      _obscurePassword = true;
+    });
   }
 
   @override
