@@ -32,7 +32,11 @@ void main() {
   testWidgets('Delivery dashboard renders customer selection UI', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: DeliveryDashboardPage()));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: DeliveryDashboardPage(userName: 'Alex', accessToken: 'token'),
+      ),
+    );
 
     expect(find.text('OrderX Delivery'), findsOneWidget);
     expect(find.text('Hello, Alex'), findsOneWidget);
