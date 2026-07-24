@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 
 class LoginPortalPage extends StatefulWidget {
   const LoginPortalPage({super.key});
@@ -8,52 +12,156 @@ class LoginPortalPage extends StatefulWidget {
 }
 
 class _LoginPortalPageState extends State<LoginPortalPage> {
-  // Controls whether the password field shows real text or hidden dots.
-  // This value changes when the eye icon is pressed.
+  // These controllers let us read what the user typed in the email and
+  // password text fields when the LOGIN button is pressed.
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  // UI state for the password field and login button.
+  // _obscurePassword controls whether the password is hidden.
+  // _isLoggingIn prevents duplicate requests while one login request is active.
   bool _obscurePassword = true;
+  bool _isLoggingIn = false;
+
+  @override
+  void dispose() {
+    // Controllers hold resources, so dispose them when this page is removed
+    // from the widget tree.
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   void _togglePasswordVisibility() {
-    // setState tells Flutter to rebuild this widget after changing the value,
-    // so the password field and eye icon update immediately on the screen.
+    // Rebuild the page after changing the value so the password field and eye
+    // icon update immediately.
     setState(() {
       _obscurePassword = !_obscurePassword;
     });
   }
 
+  Future<void> _login() async {
+    // Read the user's input. Email is trimmed because accidental spaces before
+    // or after an email address should not affect login.
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    // Basic frontend validation before sending anything to the API.
+    // The backend will still validate again, but this gives faster feedback.
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('Please enter your email and password.');
+      return;
+    }
+
+    // Read the public backend base URL from .env.
+    // Current value: https://qa-api.orderx.online
+    // The full login endpoint becomes: {API_BASE_URL}/login.
+    final apiBaseUrl = dotenv.env['API_BASE_URL'];
+    if (apiBaseUrl == null || apiBaseUrl.isEmpty) {
+      _showMessage('API base URL is missing from .env.');
+      return;
+    }
+
+    // Show a loading spinner and disable the button while the request is being
+    // processed, so the user cannot submit multiple login attempts at once.
+    setState(() {
+      _isLoggingIn = true;
+    });
+
+    try {
+      // Send the login request to the backend API.
+      // The backend expects a JSON body with email and password fields.
+      final response = await http.post(
+        Uri.parse('$apiBaseUrl/login'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
+      );
+
+      // Convert the API response body from JSON text into a Dart Map so we can
+      // read fields like message, error, accessToken, refreshToken, and user.
+      final responseBody = _decodeResponseBody(response.body);
+
+      // Any 2xx status code means the request succeeded.
+      // Right now we show a message only. Later, this is where you can save
+      // responseBody['accessToken'] and navigate to the delivery dashboard.
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        _showMessage(responseBody['message'] as String? ?? 'Login successful.');
+        return;
+      }
+
+      // If the backend rejects the login, show the backend's message when it is
+      // available. Otherwise show a general login failure message.
+      _showMessage(
+        responseBody['message'] as String? ??
+            responseBody['error'] as String? ??
+            'Login failed. Please check your details.',
+      );
+    } catch (_) {
+      // This catches network problems, invalid JSON responses, or unreachable
+      // API server errors and keeps the app from crashing.
+      _showMessage('Could not connect to the OrderX API.');
+    } finally {
+      // Turn off the loading state after the request finishes.
+      // mounted protects against updating UI after the page has been removed.
+      if (mounted) {
+        setState(() {
+          _isLoggingIn = false;
+        });
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    // Do nothing if the page is no longer visible.
+    if (!mounted) return;
+
+    // SnackBar is used for short feedback messages such as login success,
+    // missing fields, invalid credentials, or connection errors.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Map<String, dynamic> _decodeResponseBody(String body) {
+    // Some server errors can return an empty body. Returning an empty map lets
+    // the login code fall back to a friendly default message.
+    if (body.isEmpty) return const {};
+
+    // Login APIs normally return a JSON object. If the response is valid JSON
+    // but not an object, return an empty map to keep response handling simple.
+    final decoded = jsonDecode(body);
+    return decoded is Map<String, dynamic> ? decoded : const {};
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Colors are kept as constants here so the full screen uses the same
-    // navy/gray palette as the reference design.
+    // Colors used by this screen. Keeping them here makes the design easy to
+    // adjust later without hunting through every widget.
     const navy = Color(0xFF06376F);
     const labelColor = Color(0xFF3B4048);
 
-    // The screenshot has a large top gap on a tall phone screen. On shorter
-    // screens, this gap is reduced so the fields and button stay reachable.
+    // Gives the logo more breathing room on taller screens, but keeps the form
+    // reachable on shorter screens or when the keyboard is open.
     final topPadding = MediaQuery.sizeOf(context).height >= 760 ? 170.0 : 72.0;
 
     return Scaffold(
-      // This is the page background. The earlier version used an outer rounded
-      // container, which made the login form look like a separate window.
+      // Full page background color for the login screen.
       backgroundColor: const Color(0xFFFDFCFB),
       body: SafeArea(
-        // SafeArea keeps the content away from system UI like the status bar,
-        // camera notch, and bottom gesture area.
+        // SafeArea keeps the content away from the status bar, notches,
+        // and bottom system gesture areas.
         child: Center(
-          // Keeps the form from becoming too wide on tablets/desktops while
-          // still filling normal phone screens.
+          // Prevents the form from becoming too wide on tablets or desktop.
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
             child: SingleChildScrollView(
-              // SingleChildScrollView prevents overflow if the keyboard opens
-              // or the screen height is smaller than expected.
+              // Allows the content to scroll instead of overflowing on smaller
+              // screens or when the keyboard opens.
               padding: EdgeInsets.fromLTRB(28, topPadding, 28, 28),
               child: Column(
-                // Stretch makes the input fields and button take the full
-                // available width inside the form area.
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // This is not an asset image. OrderXLogo draws the blue
-                  // rounded square and white symbol using Flutter canvas code.
+                  // Top brand area: logo, app name, and portal subtitle.
                   const Center(child: OrderXLogo()),
                   const SizedBox(height: 22),
                   const Text(
@@ -63,7 +171,6 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
                       color: navy,
                       fontSize: 31,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: -1.1,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -79,21 +186,25 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
                   ),
                   const SizedBox(height: 32),
 
-                  // Username input block.
-                  const _FieldLabel('USERNAME'),
+                  // Email input section. The controller is connected to the
+                  // TextField so _login() can read the typed email.
+                  const _FieldLabel('EMAIL'),
                   const SizedBox(height: 8),
-                  const _PortalTextField(
-                    hintText: 'Enter Username',
+                  _PortalTextField(
+                    controller: _emailController,
+                    hintText: 'Enter email',
                     prefixIcon: Icons.person_outline,
+                    keyboardType: TextInputType.emailAddress,
                   ),
                   const SizedBox(height: 28),
 
-                  // Password input block. The suffix icon calls
-                  // _togglePasswordVisibility when tapped.
+                  // Password input section. The suffix eye icon toggles between
+                  // hidden and visible password text.
                   const _FieldLabel('PASSWORD'),
                   const SizedBox(height: 8),
                   _PortalTextField(
-                    hintText: '••••••••',
+                    controller: _passwordController,
+                    hintText: 'Password',
                     prefixIcon: Icons.lock_outline,
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
@@ -107,12 +218,12 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
                   ),
                   const SizedBox(height: 46),
 
-                  // Main action button. It is currently visual only; add login
-                  // validation or navigation inside onPressed when needed.
+                  // Login action section. When _isLoggingIn is true, the button
+                  // is disabled and shows a loading spinner.
                   SizedBox(
                     height: 58,
                     child: FilledButton(
-                      onPressed: () {},
+                      onPressed: _isLoggingIn ? null : _login,
                       style: FilledButton.styleFrom(
                         backgroundColor: navy,
                         foregroundColor: Colors.white,
@@ -120,22 +231,31 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'LOGIN',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: .8,
+                      child: _isLoggingIn
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.6,
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'LOGIN',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: .8,
+                                  ),
+                                ),
+                                SizedBox(width: 14),
+                                Icon(Icons.arrow_forward, size: 30),
+                              ],
                             ),
-                          ),
-                          SizedBox(width: 14),
-                          Icon(Icons.arrow_forward, size: 30),
-                        ],
-                      ),
                     ),
                   ),
                   const SizedBox(height: 28),
@@ -154,9 +274,8 @@ class OrderXLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The logo is built with Flutter widgets instead of an image asset:
-    // 1. Container creates the navy rounded square.
-    // 2. CustomPaint draws the white OrderX-like mark inside the square.
+    // The logo is drawn in Flutter instead of loaded as an image asset.
+    // The container creates the blue rounded square background.
     return Container(
       width: 145,
       height: 145,
@@ -164,6 +283,7 @@ class OrderXLogo extends StatelessWidget {
         color: const Color(0xFF0D427C),
         borderRadius: BorderRadius.circular(26),
       ),
+      // CustomPaint draws the white mark inside the square.
       child: CustomPaint(painter: _OrderMarkPainter()),
     );
   }
@@ -172,30 +292,28 @@ class OrderXLogo extends StatelessWidget {
 class _OrderMarkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    // Canvas coordinates are based on the size of the logo box. Using
-    // percentages keeps the symbol proportional if the logo size changes.
+    // Canvas uses the current logo size, so these calculations keep the mark
+    // proportional if the logo dimensions change later.
     final center = Offset(size.width / 2, size.height / 2);
 
-    // Paint for the two diagonal white strokes. round caps make the stroke
-    // ends look soft like the reference logo.
+    // Paint used for the two diagonal strokes that create the X shape.
     final spokePaint = Paint()
       ..color = Colors.white
       ..strokeWidth = 15
       ..strokeCap = StrokeCap.round;
 
-    // Paint for the center white ring. PaintingStyle.stroke means only the
-    // outline of the circle is drawn, leaving the center blue.
+    // Paint used for the small center ring.
     final ringPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 9;
 
-    // Start and end positions for the diagonal strokes. These numbers place
-    // the strokes inside the blue square with padding on all sides.
+    // Start and end points are percentages of the box width, keeping the mark
+    // padded inside the rounded square.
     final spokeStart = size.width * .29;
     final spokeEnd = size.width * .71;
 
-    // Draw the X shape first, then draw the center ring on top of it.
+    // Draw the two diagonal strokes first, then draw the ring on top.
     canvas
       ..drawLine(
         Offset(spokeStart, spokeStart),
@@ -211,8 +329,8 @@ class _OrderMarkPainter extends CustomPainter {
   }
 
   @override
-  // The mark uses fixed colors and geometry, so Flutter does not need to
-  // repaint it unless this painter is replaced with different behavior.
+  // The logo geometry and colors are fixed, so Flutter does not need to repaint
+  // this custom painter unless the painter object itself changes.
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
@@ -223,7 +341,7 @@ class _FieldLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Shared label styling keeps USERNAME and PASSWORD visually consistent.
+    // Shared label styling for EMAIL and PASSWORD.
     return Text(
       text,
       style: const TextStyle(
@@ -238,25 +356,30 @@ class _FieldLabel extends StatelessWidget {
 
 class _PortalTextField extends StatelessWidget {
   const _PortalTextField({
+    required this.controller,
     required this.hintText,
     required this.prefixIcon,
     this.obscureText = false,
     this.suffixIcon,
+    this.keyboardType,
   });
 
+  final TextEditingController controller;
   final String hintText;
   final IconData prefixIcon;
   final bool obscureText;
   final Widget? suffixIcon;
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
     const iconColor = Color(0xFF7D848C);
 
-    // Reusable text field used by both username and password. Passing the hint,
-    // prefix icon, obscureText, and optional suffix icon lets one widget cover
-    // both input styles without duplicating decoration code.
+    // Reusable text field for both email and password.
+    // The passed-in controller connects the field to the page state.
     return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
       obscureText: obscureText,
       style: const TextStyle(
         color: Color(0xFF4F5660),
@@ -271,8 +394,8 @@ class _PortalTextField extends StatelessWidget {
           fontWeight: FontWeight.w500,
         ),
         prefixIcon: Icon(prefixIcon, color: iconColor, size: 28),
-        // The username field has no suffix icon. The password field passes an
-        // IconButton here for the show/hide password action.
+        // The password field passes an eye IconButton here. The email field
+        // passes null, so no suffix icon is shown there.
         suffixIcon: suffixIcon == null
             ? null
             : IconTheme(
@@ -281,18 +404,17 @@ class _PortalTextField extends StatelessWidget {
               ),
         filled: true,
         fillColor: Colors.white,
-        // Padding controls the input height and keeps text/icons vertically
-        // aligned like the screenshot.
+        // Padding controls the field height and keeps text/icons aligned.
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 18,
           vertical: 17,
         ),
-        // Default border when the input is not focused.
+        // Border used when the field is not focused.
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: Color(0xFFD5D9DF)),
         ),
-        // Navy border when the user taps into the field.
+        // Border used when the user taps into the field.
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: Color(0xFF0D427C), width: 1.4),

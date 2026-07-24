@@ -35,6 +35,17 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  # Loads values from the root .env file.
+  # In this app, it is used to read API_BASE_URL so the login code does not
+  # hardcode https://qa-api.orderx.online directly inside the Dart file.
+  # Keep only frontend-safe values here. Do not put database credentials or
+  # JWT secrets in a Flutter app because mobile app files can be extracted.
+  flutter_dotenv: ^5.2.1
+
+  # Sends HTTP requests from Flutter to the backend API.
+  # The login screen uses this package to POST email and password to /login.
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -56,6 +67,11 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    # Registers the .env file as a Flutter asset so flutter_dotenv can read it
+    # when the app starts.
+    - .env
 
   # To add assets to your application, add an assets section, like this:
   # assets:

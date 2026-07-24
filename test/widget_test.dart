@@ -9,7 +9,7 @@ void main() {
 
     expect(find.text('OrderX'), findsOneWidget);
     expect(find.text('DELIVERY TEAM PORTAL'), findsOneWidget);
-    expect(find.text('USERNAME'), findsOneWidget);
+    expect(find.text('EMAIL'), findsOneWidget);
     expect(find.text('PASSWORD'), findsOneWidget);
     expect(find.text('LOGIN'), findsOneWidget);
     expect(find.byIcon(Icons.person_outline), findsOneWidget);
