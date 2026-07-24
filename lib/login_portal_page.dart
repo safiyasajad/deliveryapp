@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import 'delivery_dashboard_page.dart';
+import 'orderx_logo.dart';
+
 class LoginPortalPage extends StatefulWidget {
   const LoginPortalPage({super.key});
 
@@ -73,6 +76,7 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
       // The backend expects a JSON body with email and password fields.
       final response = await http.post(
         Uri.parse('$apiBaseUrl/login'),
+        //lets the backend know we are sending JSON and expect JSON in return.
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'password': password}),
       );
@@ -82,10 +86,11 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
       final responseBody = _decodeResponseBody(response.body);
 
       // Any 2xx status code means the request succeeded.
-      // Right now we show a message only. Later, this is where you can save
-      // responseBody['accessToken'] and navigate to the delivery dashboard.
+      // Later, this is also where you can save responseBody['accessToken'] for
+      // customer API requests that require Authorization: Bearer <token>.
       if (response.statusCode >= 200 && response.statusCode < 300) {
         _showMessage(responseBody['message'] as String? ?? 'Login successful.');
+        _openDashboard();
         return;
       }
 
@@ -131,6 +136,18 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
     // but not an object, return an empty map to keep response handling simple.
     final decoded = jsonDecode(body);
     return decoded is Map<String, dynamic> ? decoded : const {};
+  }
+
+  void _openDashboard() {
+    if (!mounted) return;
+
+    // Open the dashboard after successful login.
+    // The dashboard logout icon pops this route and returns to the login page.
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => const DeliveryDashboardPage(),
+      ),
+    );
   }
 
   @override
@@ -267,71 +284,6 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
       ),
     );
   }
-}
-
-class OrderXLogo extends StatelessWidget {
-  const OrderXLogo({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // The logo is drawn in Flutter instead of loaded as an image asset.
-    // The container creates the blue rounded square background.
-    return Container(
-      width: 145,
-      height: 145,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D427C),
-        borderRadius: BorderRadius.circular(26),
-      ),
-      // CustomPaint draws the white mark inside the square.
-      child: CustomPaint(painter: _OrderMarkPainter()),
-    );
-  }
-}
-
-class _OrderMarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Canvas uses the current logo size, so these calculations keep the mark
-    // proportional if the logo dimensions change later.
-    final center = Offset(size.width / 2, size.height / 2);
-
-    // Paint used for the two diagonal strokes that create the X shape.
-    final spokePaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 15
-      ..strokeCap = StrokeCap.round;
-
-    // Paint used for the small center ring.
-    final ringPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 9;
-
-    // Start and end points are percentages of the box width, keeping the mark
-    // padded inside the rounded square.
-    final spokeStart = size.width * .29;
-    final spokeEnd = size.width * .71;
-
-    // Draw the two diagonal strokes first, then draw the ring on top.
-    canvas
-      ..drawLine(
-        Offset(spokeStart, spokeStart),
-        Offset(spokeEnd, spokeEnd),
-        spokePaint,
-      )
-      ..drawLine(
-        Offset(spokeEnd, spokeStart),
-        Offset(spokeStart, spokeEnd),
-        spokePaint,
-      )
-      ..drawCircle(center, size.width * .19, ringPaint);
-  }
-
-  @override
-  // The logo geometry and colors are fixed, so Flutter does not need to repaint
-  // this custom painter unless the painter object itself changes.
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _FieldLabel extends StatelessWidget {
