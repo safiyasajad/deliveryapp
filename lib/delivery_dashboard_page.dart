@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import 'customer_card_data.dart';
 import 'orderx_logo.dart';
+import 'product_selection_page.dart';
 
 // DeliveryDashboardPage is shown after a successful login.
 // It receives userName and accessToken from LoginPortalPage.
@@ -37,7 +39,7 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
   // Temporary delays so the loading UI is easy to see while developing.
   // Remove these before production so API responses appear as fast as possible.
   static const Duration _debugCustomerLoadingDelay = Duration(seconds: 2);
-  static const Duration _debugLazyLoadingDelay = Duration(seconds: 10);
+  static const Duration _debugLazyLoadingDelay = Duration(seconds: 5);
 
   // Customer list shown in the card panel.
   // This starts empty and is filled by _fetchCustomers() after the page opens.
@@ -694,15 +696,18 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
                   onContinue: () {
                     if (selectedCustomer == null) return;
 
-                    // Placeholder action until the next delivery workflow page
-                    // is added. For now it confirms the selected customer.
-                    ScaffoldMessenger.of(context)
-                      ..hideCurrentSnackBar()
-                      ..showSnackBar(
-                        SnackBar(
-                          content: Text('Selected ${selectedCustomer.name}'),
+                    // Continue opens the product selection workflow for the
+                    // selected customer. The next screen receives both the
+                    // customer details and the access token it needs for API
+                    // calls.
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => ProductSelectionPage(
+                          customer: selectedCustomer,
+                          accessToken: widget.accessToken,
                         ),
-                      );
+                      ),
+                    );
                   },
                 ),
               ],
@@ -710,42 +715,6 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class CustomerCardData {
-  // Small data model for one customer card.
-  // This keeps the UI clean because each card receives a typed object instead
-  // of several loose strings.
-  const CustomerCardData({
-    required this.id,
-    required this.name,
-    required this.code,
-    required this.telephone,
-    required this.address,
-  });
-
-  final String id;
-  final String name;
-  final String code;
-  final String telephone;
-  final String address;
-
-  CustomerCardData copyWith({
-    String? id,
-    String? name,
-    String? code,
-    String? telephone,
-    String? address,
-  }) {
-    //this is the details of the customer fetched
-    return CustomerCardData(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      code: code ?? this.code,
-      telephone: telephone ?? this.telephone,
-      address: address ?? this.address,
     );
   }
 }
