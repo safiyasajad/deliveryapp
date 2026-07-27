@@ -41,7 +41,7 @@ void main() {
     expect(find.text('OrderX Delivery'), findsOneWidget);
     expect(find.text('Hello, Alex'), findsOneWidget);
     expect(find.text('Search Customer'), findsOneWidget);
-    expect(find.text('Sarah Jenkins'), findsWidgets);
     expect(find.text('Continue'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsWidgets);
   });
 }
