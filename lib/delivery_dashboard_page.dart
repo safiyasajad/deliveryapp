@@ -918,23 +918,9 @@ class _CustomerListPanel extends StatelessWidget {
     // Loading state shown while the customer API request is running.
     if (isLoading) {
       return const _CustomerPanelShell(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Color(0xFF06376F)),
-              SizedBox(height: 14),
-              Text(
-                'Loading customers...',
-                style: TextStyle(
-                  color: Color(0xFF26364D),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
+        child: _CustomerSkeletonList(
+          itemCount: 3,
+          label: 'Loading customers...',
         ),
       );
     }
@@ -990,27 +976,9 @@ class _CustomerListPanel extends StatelessWidget {
           ],
           if (isLoadingMore) ...[
             const SizedBox(height: 16),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  height: 24,
-                  width: 24,
-                  child: CircularProgressIndicator(
-                    color: Color(0xFF06376F),
-                    strokeWidth: 2.6,
-                  ),
-                ),
-                SizedBox(width: 10),
-                Text(
-                  'Loading more customers...',
-                  style: TextStyle(
-                    color: Color(0xFF26364D),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+            const _CustomerSkeletonList(
+              itemCount: 1,
+              label: 'Loading more customers...',
             ),
           ],
           if (loadMoreErrorMessage != null) ...[
@@ -1059,6 +1027,180 @@ class _CustomerPanelShell extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+class _CustomerSkeletonList extends StatefulWidget {
+  const _CustomerSkeletonList({required this.itemCount, required this.label});
+
+  final int itemCount;
+  final String label;
+
+  @override
+  State<_CustomerSkeletonList> createState() => _CustomerSkeletonListState();
+}
+
+class _CustomerSkeletonListState extends State<_CustomerSkeletonList>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Repeating pulse animation for the grey placeholder blocks.
+    // This gives a loading-state animation similar to the reference image.
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+
+    _opacity = Tween<double>(
+      begin: 0.45,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _opacity,
+      builder: (context, child) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.label,
+              style: const TextStyle(
+                color: Color(0xFF26364D),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 14),
+            for (var index = 0; index < widget.itemCount; index++) ...[
+              Opacity(
+                opacity: _opacity.value,
+                child: const _CustomerSkeletonCard(),
+              ),
+              if (index != widget.itemCount - 1) const SizedBox(height: 12),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CustomerSkeletonCard extends StatelessWidget {
+  const _CustomerSkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    // Skeleton version of a customer card: a large name block, three detail
+    // lines, and a circular selection placeholder on the right.
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFD2D7E0)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                _SkeletonBlock(widthFactor: 0.56, height: 24),
+                SizedBox(height: 14),
+                _SkeletonLine(widthFactor: 0.44),
+                SizedBox(height: 10),
+                _SkeletonLine(widthFactor: 0.62),
+                SizedBox(height: 10),
+                _SkeletonLine(widthFactor: 0.78),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          const _SkeletonCircle(size: 32),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonLine extends StatelessWidget {
+  const _SkeletonLine({required this.widthFactor});
+
+  final double widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const _SkeletonCircle(size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: widthFactor,
+            child: const _SkeletonBlock(height: 15),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SkeletonBlock extends StatelessWidget {
+  const _SkeletonBlock({required this.height, this.widthFactor});
+
+  final double height;
+  final double? widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    final block = Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFD2D7E0),
+        borderRadius: BorderRadius.circular(6),
+      ),
+    );
+
+    if (widthFactor == null) return block;
+
+    return FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: widthFactor,
+      child: block,
+    );
+  }
+}
+
+class _SkeletonCircle extends StatelessWidget {
+  const _SkeletonCircle({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        color: Color(0xFFD2D7E0),
+        shape: BoxShape.circle,
+      ),
     );
   }
 }
