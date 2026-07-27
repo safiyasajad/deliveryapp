@@ -5,6 +5,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 import 'customer_card_data.dart';
+import 'payment_collection_page.dart';
+import 'product_card_data.dart';
 
 // ProductSelectionPage opens after the delivery user chooses a customer.
 // It shows the selected customer at the top and fetches product data from the
@@ -352,16 +354,23 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
   }
 
   void _submitOrder() {
-    // Placeholder action until the real order creation endpoint is provided.
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            'Submitting $_selectedItemCount item(s) for ${widget.customer.name}',
-          ),
+    final selectedProducts = _products
+        .where((product) => product.isSelected)
+        .toList();
+
+    if (selectedProducts.isEmpty) return;
+
+    // Submit Order opens the payment collection step.
+    // Only selected products are passed forward, so they become the order
+    // summary on the next page.
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PaymentCollectionPage(
+          customer: widget.customer,
+          selectedProducts: selectedProducts,
         ),
-      );
+      ),
+    );
   }
 
   @override
@@ -409,43 +418,6 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class ProductCardData {
-  // Small model for the product selection card.
-  const ProductCardData({
-    required this.id,
-    required this.name,
-    required this.availableQuantity,
-    required this.unitPrice,
-    required this.quantity,
-    required this.isSelected,
-  });
-
-  final String id;
-  final String name;
-  final int availableQuantity;
-  final double unitPrice;
-  final int quantity;
-  final bool isSelected;
-
-  ProductCardData copyWith({
-    String? id,
-    String? name,
-    int? availableQuantity,
-    double? unitPrice,
-    int? quantity,
-    bool? isSelected,
-  }) {
-    return ProductCardData(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      availableQuantity: availableQuantity ?? this.availableQuantity,
-      unitPrice: unitPrice ?? this.unitPrice,
-      quantity: quantity ?? this.quantity,
-      isSelected: isSelected ?? this.isSelected,
     );
   }
 }

@@ -468,7 +468,6 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
           ['result'],
         ]) ??
         responseBody;
-
     return _addressFromJson(addressMap);
   }
 
