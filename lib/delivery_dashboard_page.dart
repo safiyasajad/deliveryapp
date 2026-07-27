@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'orderx_logo.dart';
 
+// DeliveryDashboardPage is shown after a successful login.
+// It receives userName and accessToken from LoginPortalPage.
+// userName is used in the greeting.
+// accessToken will be used later when the real customer API is connected.
 class DeliveryDashboardPage extends StatefulWidget {
   const DeliveryDashboardPage({
     super.key,
@@ -24,6 +28,10 @@ class DeliveryDashboardPage extends StatefulWidget {
 class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
   // Temporary customer data used to build the card UI.
   // Later, this list can be replaced with data returned from the customer API.
+  // When the API link is added, this should become:
+  // 1. An empty list at first.
+  // 2. Filled after an HTTP GET request succeeds.
+  // 3. Rendered by the same _CustomerListPanel and _CustomerCard widgets.
   final List<CustomerCardData> _customers = const [
     CustomerCardData(
       name: 'Sarah Jenkins',
@@ -42,7 +50,14 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
     ),
   ];
 
+  // Search input state.
+  // _searchController reads/clears the actual text field value.
+  // _searchText stores the latest typed text so the UI can filter the cards.
   final _searchController = TextEditingController();
+
+  // Stores which customer is selected.
+  // This is an index into _customers, not _filteredCustomers, so the selected
+  // customer remains stable even when the search text changes.
   int _selectedCustomerIndex = 0;
   String _searchText = '';
 
@@ -55,6 +70,9 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
 
   List<CustomerCardData> get _filteredCustomers {
     // Search checks the customer name, phone number, and address.
+    // This is local filtering over the current list.
+    // Later, if the customer API supports search, this can be changed to call
+    // the backend instead of filtering in Flutter.
     final query = _searchText.trim().toLowerCase();
     if (query.isEmpty) return _customers;
 
@@ -77,6 +95,9 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Calculate screen-specific display values before building widgets.
+    // filteredCustomers controls which cards appear after search.
+    // displayName prevents an empty greeting if an empty name is ever passed in.
     final filteredCustomers = _filteredCustomers;
     final displayName = widget.userName.trim().isEmpty
         ? 'User'
@@ -90,9 +111,12 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
             constraints: const BoxConstraints(maxWidth: 520),
             child: Column(
               children: [
+                // Fixed top header: logo, title, and logout button.
                 const _DashboardHeader(),
                 Expanded(
                   child: SingleChildScrollView(
+                    // Main dashboard content scrolls independently from the
+                    // fixed bottom action bar.
                     padding: const EdgeInsets.fromLTRB(32, 40, 32, 28),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -153,6 +177,8 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
                 ),
                 _BottomActionBar(
                   onContinue: () {
+                    // Placeholder action until the next delivery workflow page
+                    // is added. For now it confirms the selected customer.
                     ScaffoldMessenger.of(context)
                       ..hideCurrentSnackBar()
                       ..showSnackBar(
@@ -172,6 +198,9 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
 }
 
 class CustomerCardData {
+  // Small data model for one customer card.
+  // This keeps the UI clean because each card receives a typed object instead
+  // of several loose strings.
   const CustomerCardData({
     required this.name,
     required this.phone,
@@ -188,6 +217,8 @@ class _DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Header matches the mockup: small OrderX logo on the left, title beside it,
+    // logout icon on the right, and a subtle bottom border.
     return Container(
       height: 76,
       padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -213,6 +244,8 @@ class _DashboardHeader extends StatelessWidget {
           ),
           IconButton(
             onPressed: () {
+              // Returning from the dashboard triggers _clearLoginForm() in the
+              // login page because LoginPortalPage awaits this route.
               Navigator.of(context).pop();
             },
             icon: const Icon(Icons.logout, color: Color(0xFF003469), size: 28),
@@ -231,6 +264,7 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Reusable section label used above the search field.
     return Text(
       text,
       style: const TextStyle(
@@ -251,6 +285,9 @@ class _SearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Search text field from the mockup.
+    // The parent owns the controller and onChanged callback so the parent can
+    // update filtered customer results.
     return TextField(
       controller: controller,
       onChanged: onChanged,
@@ -303,6 +340,8 @@ class _CustomerListPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Empty state shown when search filters out all customers.
+    // This will also be useful if the customer API returns an empty list.
     if (customers.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(22),
@@ -323,6 +362,8 @@ class _CustomerListPanel extends StatelessWidget {
     }
 
     return Container(
+      // Panel around all customer cards.
+      // The cards are separate selectable rows inside this framed area.
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFFF5F6FA),
@@ -338,6 +379,8 @@ class _CustomerListPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
+          // Build each card and add spacing between cards, but not after the
+          // final card.
           for (var index = 0; index < customers.length; index++) ...[
             _CustomerCard(
               customer: customers[index],
@@ -365,6 +408,8 @@ class _CustomerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Selected cards use a blue border and pale-blue background.
+    // Unselected cards stay white with a lighter border.
     final borderColor = isSelected
         ? const Color(0xFF0A3C73)
         : const Color(0xFFD2D7E0);
@@ -375,6 +420,7 @@ class _CustomerCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        // InkWell gives the card a proper tap interaction/ripple.
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: AnimatedContainer(
@@ -387,6 +433,8 @@ class _CustomerCard extends StatelessWidget {
           ),
           child: Row(
             children: [
+              // Customer details take all available width.
+              // The selection circle stays fixed on the right.
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -439,6 +487,8 @@ class _CustomerDetailLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // One icon + text row inside a customer card.
+    // Used for phone and address lines.
     return Row(
       children: [
         Icon(icon, color: const Color(0xFF0A3C73), size: 18),
@@ -467,6 +517,7 @@ class _SelectionIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Selected state: filled blue circle with a check mark.
     if (isSelected) {
       return Container(
         width: 32,
@@ -479,6 +530,7 @@ class _SelectionIndicator extends StatelessWidget {
       );
     }
 
+    // Unselected state: white circle with a light gray border.
     return Container(
       width: 32,
       height: 32,
@@ -498,6 +550,8 @@ class _PinnedCustomerChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The pinned chip summarizes the currently selected customer.
+    // ConstrainedBox prevents overflow on narrow mobile screens.
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: MediaQuery.sizeOf(context).width - 64,
@@ -539,6 +593,8 @@ class _BottomActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Fixed bottom action area from the mockup.
+    // It stays separate from the scrollable content above it.
     return Container(
       padding: const EdgeInsets.fromLTRB(32, 20, 32, 20),
       decoration: const BoxDecoration(
@@ -551,6 +607,8 @@ class _BottomActionBar extends StatelessWidget {
           height: 64,
           width: double.infinity,
           child: FilledButton(
+            // Later this should navigate to the next step for the selected
+            // customer, such as package details or delivery confirmation.
             onPressed: onContinue,
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF06376F),

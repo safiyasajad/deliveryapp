@@ -7,6 +7,12 @@ import 'package:http/http.dart' as http;
 import 'delivery_dashboard_page.dart';
 import 'orderx_logo.dart';
 
+// LoginPortalPage is the first screen of the delivery app.
+// Its responsibilities are:
+// 1. Collect the user's email and password.
+// 2. Send those details to the backend /login API.
+// 3. Read the access token and user/profile name from the API response.
+// 4. Open DeliveryDashboardPage with the user name and token.
 class LoginPortalPage extends StatefulWidget {
   const LoginPortalPage({super.key});
 
@@ -44,6 +50,10 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
   }
 
   Future<void> _login() async {
+    // This method is the full login workflow.
+    // It starts with local validation, then calls /login, then calls
+    // /user/personal-info if an access token is available.
+
     // Read the user's input. Email is trimmed because accidental spaces before
     // or after an email address should not affect login.
     final email = _emailController.text.trim();
@@ -89,11 +99,26 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
       // Later, this is also where you can save responseBody['accessToken'] for
       // customer API requests that require Authorization: Bearer <token>.
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        // Pull the JWT token out of the login response.
+        // The token is needed for protected API calls, such as
+        // /user/personal-info and later the customer API.
         final accessToken = _getAccessToken(responseBody);
+
+        // Try to get a display name directly from /login first.
+        // Some APIs return user details in the login response, while others
+        // only return tokens and require a second profile request.
         final loginResponseName = _getUserDisplayName(responseBody);
+
+        // If /login gives us a generic value like "User", use the email typed
+        // into the login form as the fallback. Example:
+        // safiya@techorin.net becomes safiya.
         final fallbackName = _isGenericDisplayName(loginResponseName)
             ? _firstNamePart(email)
             : loginResponseName;
+
+        // If there is no token, the app cannot call /user/personal-info.
+        // In that case, open the dashboard using the best fallback name.
+        // If there is a token, fetch the profile and prefer that name.
         final userName = accessToken.isEmpty
             ? fallbackName
             : await _fetchPersonalInfoUserName(
@@ -153,6 +178,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
 
   String _getAccessToken(Map<String, dynamic> responseBody) {
     // The live API may return the token directly or inside a data wrapper.
+    // This helper checks several common response shapes so the app does not
+    // break if the backend response is {token: ...} instead of {accessToken: ...}.
     return _firstStringFromPaths(responseBody, const [
       ['accessToken'],
       ['access_token'],
@@ -183,6 +210,9 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
     required String fallbackName,
   }) async {
     try {
+      // Call the profile endpoint after login.
+      // This is where we expect the user's saved name, such as "safiya sa".
+      // The Authorization header sends the JWT token returned by /login.
       final response = await http.get(
         Uri.parse('$apiBaseUrl/user/personal-info'),
         headers: {
@@ -192,10 +222,19 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        // If the profile endpoint rejects the request, keep the fallback name.
+        // This avoids blocking dashboard navigation just because profile fetch
+        // failed.
         return fallbackName;
       }
 
       final personalInfo = _decodeResponseBody(response.body);
+
+      // APIs often wrap the actual object. These are examples this handles:
+      // { "data": { "full_name": "safiya sa" } }
+      // { "user": { "name": "safiya sa" } }
+      // { "result": { "firstName": "safiya" } }
+      // Or simply: { "name": "safiya sa" }
       final profile =
           _firstNestedMapFromPaths(personalInfo, const [
             ['data'],
@@ -207,6 +246,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
           personalInfo;
 
       final personalInfoName = _displayNameFromMap(profile, fallback: '');
+      // If the profile endpoint returns a useless name like "User" or an empty
+      // string, fall back to the login response/email-derived name instead.
       return _isGenericDisplayName(personalInfoName)
           ? fallbackName
           : personalInfoName;
@@ -219,6 +260,9 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
     Map<String, dynamic> source, {
     required String fallback,
   }) {
+    // Reads a display name from one API object.
+    // It checks full-name style fields first, then first-name fields, then email.
+    // Every returned value is shortened by _firstNamePart before display.
     final fullName = _firstStringFromKeys(source, const [
       'name',
       'fullName',
@@ -257,6 +301,9 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
   }
 
   bool _isGenericDisplayName(String value) {
+    // Treat blank values and "User" as not useful.
+    // This prevents the dashboard from showing "Hello, User" when we can use
+    // the email prefix instead.
     final normalizedValue = value.trim().toLowerCase();
     return normalizedValue.isEmpty || normalizedValue == 'user';
   }
@@ -265,6 +312,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
     Map<String, dynamic> source,
     List<List<String>> paths,
   ) {
+    // Looks for the first Map object at one of the requested paths.
+    // Example path ['data', 'user'] reads source['data']['user'].
     for (final path in paths) {
       final value = _valueAtPath(source, path);
       if (value is Map<String, dynamic>) return value;
@@ -274,6 +323,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
   }
 
   String _firstStringFromKeys(Map<String, dynamic> source, List<String> keys) {
+    // Reads the first non-empty string from a flat object.
+    // Example: try name, then fullName, then full_name.
     for (final key in keys) {
       final value = (source[key] as String? ?? '').trim();
       if (value.isNotEmpty) return value;
@@ -286,6 +337,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
     Map<String, dynamic> source,
     List<List<String>> paths,
   ) {
+    // Reads the first non-empty string from nested paths.
+    // This is mainly used for tokens that may be nested under data/auth/session.
     for (final path in paths) {
       final value = (_valueAtPath(source, path) as String? ?? '').trim();
       if (value.isNotEmpty) return value;
@@ -295,6 +348,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
   }
 
   Object? _valueAtPath(Map<String, dynamic> source, List<String> path) {
+    // Walk through a nested JSON map safely.
+    // If any part of the path is missing or is not a map, return null.
     Object? current = source;
 
     for (final key in path) {
@@ -314,6 +369,8 @@ class _LoginPortalPageState extends State<LoginPortalPage> {
 
     // Open the dashboard after successful login.
     // The dashboard logout icon pops this route and returns to the login page.
+    // Because this await waits until the dashboard closes, we can clear the
+    // login form immediately after logout/back navigation.
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => DeliveryDashboardPage(
