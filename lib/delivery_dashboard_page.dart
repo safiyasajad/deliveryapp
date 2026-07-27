@@ -34,6 +34,11 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
   // Keeping this small makes the first dashboard load faster.
   static const int _customerPageSize = 15;
 
+  // Temporary delays so the loading UI is easy to see while developing.
+  // Remove these before production so API responses appear as fast as possible.
+  static const Duration _debugCustomerLoadingDelay = Duration(seconds: 2);
+  static const Duration _debugLazyLoadingDelay = Duration(seconds: 10);
+
   // Customer list shown in the card panel.
   // This starts empty and is filled by _fetchCustomers() after the page opens.
   List<CustomerCardData> _customers = const [];
@@ -137,6 +142,14 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
     });
 
     try {
+      // Artificial delay for testing the loading states.
+      // reset == true means first load, retry, or full refresh.
+      // reset == false means lazy loading after the user scrolls near the
+      // bottom, so use the lazy-loading delay for that specific state.
+      await Future.delayed(
+        reset ? _debugCustomerLoadingDelay : _debugLazyLoadingDelay,
+      );
+
       if (widget.accessToken.isEmpty) {
         throw Exception(
           'Login token missing. Please log out and log in again.',
@@ -907,8 +920,20 @@ class _CustomerListPanel extends StatelessWidget {
       return const _CustomerPanelShell(
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 24),
-          child: Center(
-            child: CircularProgressIndicator(color: Color(0xFF06376F)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Color(0xFF06376F)),
+              SizedBox(height: 14),
+              Text(
+                'Loading customers...',
+                style: TextStyle(
+                  color: Color(0xFF26364D),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -965,13 +990,27 @@ class _CustomerListPanel extends StatelessWidget {
           ],
           if (isLoadingMore) ...[
             const SizedBox(height: 16),
-            const SizedBox(
-              height: 28,
-              width: 28,
-              child: CircularProgressIndicator(
-                color: Color(0xFF06376F),
-                strokeWidth: 2.6,
-              ),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF06376F),
+                    strokeWidth: 2.6,
+                  ),
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Loading more customers...',
+                  style: TextStyle(
+                    color: Color(0xFF26364D),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ],
           if (loadMoreErrorMessage != null) ...[
