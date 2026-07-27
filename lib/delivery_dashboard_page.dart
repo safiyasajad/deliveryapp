@@ -30,6 +30,10 @@ class DeliveryDashboardPage extends StatefulWidget {
 }
 
 class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
+  // Number of customers requested from the API at one time.
+  // Keeping this small makes the first dashboard load faster.
+  static const int _customerPageSize = 15;
+
   // Customer list shown in the card panel.
   // This starts empty and is filled by _fetchCustomers() after the page opens.
   List<CustomerCardData> _customers = const [];
@@ -39,11 +43,19 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
   // _searchText stores the latest typed text so the UI can filter the cards.
   final _searchController = TextEditingController();
 
+  // Watches the main page scroll position.
+  // When the user scrolls close to the bottom, the next customer page is loaded.
+  final _contentScrollController = ScrollController();
+
   // API state for the customer list.
   // _isLoadingCustomers shows a spinner while the HTTP request is in progress.
   // _customerErrorMessage stores a readable error if the API request fails.
-  bool _isLoadingCustomers = true;
+  bool _isLoadingCustomers = false;
+  bool _isLoadingMoreCustomers = false;
+  bool _hasMoreCustomers = true;
+  int _nextCustomerOffset = 1;
   String? _customerErrorMessage;
+  String? _loadMoreCustomerErrorMessage;
 
   // Stores which customer is selected.
   // This is nullable because the API can return zero customers.
@@ -57,12 +69,19 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
     // Fetch the real customer list as soon as the dashboard is created.
     // The API URL matches the endpoint provided by the backend:
     // /customer/customer-management?offset=1&limit=15&search=&sortBy=name&order=ASC
-    _fetchCustomers();
+    _fetchCustomers(reset: true);
+
+    // Lazy loading starts here. Instead of fetching every customer immediately,
+    // this listener waits until the user scrolls near the bottom of the page.
+    _contentScrollController.addListener(_loadMoreCustomersWhenNeeded);
   }
 
   @override
   void dispose() {
-    // Dispose the search controller when this screen closes.
+    // Dispose controllers when this screen closes.
+    _contentScrollController
+      ..removeListener(_loadMoreCustomersWhenNeeded)
+      ..dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -82,20 +101,39 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
     }).toList();
   }
 
-  Future<void> _fetchCustomers() async {
+  Future<void> _fetchCustomers({bool reset = false}) async {
+    if (_isLoadingCustomers || _isLoadingMoreCustomers) return;
+    if (!reset && !_hasMoreCustomers) return;
+
     final apiBaseUrl = dotenv.env['API_BASE_URL'];
 
     if (apiBaseUrl == null || apiBaseUrl.isEmpty) {
       setState(() {
         _isLoadingCustomers = false;
+        _isLoadingMoreCustomers = false;
         _customerErrorMessage = 'API base URL is missing from .env.';
       });
       return;
     }
 
+    final offset = reset ? 1 : _nextCustomerOffset;
+
     setState(() {
-      _isLoadingCustomers = true;
+      // A reset is used for the first load, retry, and refresh button.
+      // A non-reset load means the user scrolled down and only needs the next
+      // small page of customers.
+      if (reset) {
+        _isLoadingCustomers = true;
+        _customers = const [];
+        _selectedCustomer = null;
+        _nextCustomerOffset = 1;
+        _hasMoreCustomers = true;
+      } else {
+        _isLoadingMoreCustomers = true;
+      }
+
       _customerErrorMessage = null;
+      _loadMoreCustomerErrorMessage = null;
     });
 
     try {
@@ -107,9 +145,9 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
 
       final uri = Uri.parse(apiBaseUrl).replace(
         path: '/customer/customer-management',
-        queryParameters: const {
-          'offset': '1',
-          'limit': '15',
+        queryParameters: {
+          'offset': offset.toString(),
+          'limit': _customerPageSize.toString(),
           'search': '',
           'sortBy': 'name',
           'order': 'ASC',
@@ -152,22 +190,72 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
       if (!mounted) return;
 
       setState(() {
-        _customers = customers;
-        _selectedCustomer = customers.isEmpty ? null : customers.first;
+        // Append only the newly requested page. This is the important lazy
+        // loading behavior: old customers stay in memory, and new customers are
+        // fetched only when needed.
+        final updatedCustomers = reset
+            ? customers
+            : [..._customers, ...customers];
+
+        _customers = updatedCustomers;
+        _selectedCustomer = updatedCustomers.isEmpty
+            ? null
+            : (_selectedCustomer ?? updatedCustomers.first);
+        _nextCustomerOffset = offset + 1;
+        _hasMoreCustomers = customers.length == _customerPageSize;
         _isLoadingCustomers = false;
+        _isLoadingMoreCustomers = false;
+        _loadMoreCustomerErrorMessage = null;
+      });
+
+      // If the first page does not fill the visible screen, this checks whether
+      // another page is needed after the UI has laid out.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadMoreCustomersWhenNeeded();
       });
     } catch (error) {
       if (!mounted) return;
 
       setState(() {
-        _customers = const [];
-        _selectedCustomer = null;
+        if (reset) {
+          _customers = const [];
+          _selectedCustomer = null;
+          _customerErrorMessage = error.toString().replaceFirst(
+            'Exception: ',
+            '',
+          );
+        } else {
+          // A failed lazy-load should not hide customers that were already
+          // fetched successfully. Keep the current list visible and show a
+          // small retry control at the bottom of the list instead.
+          _loadMoreCustomerErrorMessage = error.toString().replaceFirst(
+            'Exception: ',
+            '',
+          );
+        }
         _isLoadingCustomers = false;
-        _customerErrorMessage = error.toString().replaceFirst(
-          'Exception: ',
-          '',
-        );
+        _isLoadingMoreCustomers = false;
       });
+    }
+  }
+
+  void _loadMoreCustomersWhenNeeded() {
+    // Do not lazy-load extra pages while the user is filtering the already
+    // loaded list. This avoids surprising API calls on every search.
+    if (_searchText.trim().isNotEmpty) return;
+    if (!_contentScrollController.hasClients) return;
+    if (_isLoadingCustomers || _isLoadingMoreCustomers || !_hasMoreCustomers) {
+      return;
+    }
+    if (_loadMoreCustomerErrorMessage != null) return;
+
+    final position = _contentScrollController.position;
+    final distanceFromBottom = position.maxScrollExtent - position.pixels;
+
+    // Start the next request a little before the real bottom so the next page
+    // can appear smoothly while the user keeps scrolling.
+    if (distanceFromBottom <= 180) {
+      _fetchCustomers();
     }
   }
 
@@ -292,6 +380,7 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
     );
   }
 
+  // This is the details of the customer fetched via customer id. The address is fetched from a separate endpoint using the customer id. If the address fetch fails, the original customer data is returned without an updated address.
   Future<CustomerCardData> _customerWithFetchedAddress({
     required String apiBaseUrl,
     required CustomerCardData customer,
@@ -515,10 +604,11 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
                 // used when the screen first opens.
                 _DashboardHeader(
                   isRefreshing: _isLoadingCustomers,
-                  onRefresh: _fetchCustomers,
+                  onRefresh: () => _fetchCustomers(reset: true),
                 ),
                 Expanded(
                   child: SingleChildScrollView(
+                    controller: _contentScrollController,
                     // Main dashboard content scrolls independently from the
                     // fixed bottom action bar.
                     padding: const EdgeInsets.fromLTRB(32, 40, 32, 28),
@@ -565,8 +655,11 @@ class _DeliveryDashboardPageState extends State<DeliveryDashboardPage> {
                           customers: filteredCustomers,
                           selectedCustomer: selectedCustomer,
                           isLoading: _isLoadingCustomers,
+                          isLoadingMore: _isLoadingMoreCustomers,
                           errorMessage: _customerErrorMessage,
-                          onRetry: _fetchCustomers,
+                          loadMoreErrorMessage: _loadMoreCustomerErrorMessage,
+                          onRetry: () => _fetchCustomers(reset: true),
+                          onLoadMoreRetry: _fetchCustomers,
                           onSelected: _selectCustomer,
                         ),
                         const SizedBox(height: 30),
@@ -633,6 +726,7 @@ class CustomerCardData {
     String? telephone,
     String? address,
   }) {
+    //this is the details of the customer fetched
     return CustomerCardData(
       id: id ?? this.id,
       name: name ?? this.name,
@@ -788,16 +882,22 @@ class _CustomerListPanel extends StatelessWidget {
     required this.customers,
     required this.selectedCustomer,
     required this.isLoading,
+    required this.isLoadingMore,
     required this.errorMessage,
+    required this.loadMoreErrorMessage,
     required this.onRetry,
+    required this.onLoadMoreRetry,
     required this.onSelected,
   });
 
   final List<CustomerCardData> customers;
   final CustomerCardData? selectedCustomer;
   final bool isLoading;
+  final bool isLoadingMore;
   final String? errorMessage;
+  final String? loadMoreErrorMessage;
   final VoidCallback onRetry;
+  final VoidCallback onLoadMoreRetry;
   final ValueChanged<CustomerCardData> onSelected;
 
   @override
@@ -862,6 +962,34 @@ class _CustomerListPanel extends StatelessWidget {
               onTap: () => onSelected(customers[index]),
             ),
             if (index != customers.length - 1) const SizedBox(height: 12),
+          ],
+          if (isLoadingMore) ...[
+            const SizedBox(height: 16),
+            const SizedBox(
+              height: 28,
+              width: 28,
+              child: CircularProgressIndicator(
+                color: Color(0xFF06376F),
+                strokeWidth: 2.6,
+              ),
+            ),
+          ],
+          if (loadMoreErrorMessage != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              loadMoreErrorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF26364D),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: onLoadMoreRetry,
+              child: const Text('Load more'),
+            ),
           ],
         ],
       ),
