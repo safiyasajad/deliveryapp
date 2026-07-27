@@ -12,7 +12,8 @@ class PaymentCollectionPage extends StatefulWidget {
     required this.customer,
     required this.selectedProducts,
   });
-
+ 
+ 
   final CustomerCardData customer;
   final List<ProductCardData> selectedProducts;
 
