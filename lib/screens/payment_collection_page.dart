@@ -24,10 +24,12 @@ class PaymentCollectionPage extends StatefulWidget {
     super.key,
     required this.customer,
     required this.selectedProducts,
+    required this.accessToken,
   });
 
   final CustomerCardData customer;
   final List<ProductCardData> selectedProducts;
+  final String accessToken;
 
   @override
   State<PaymentCollectionPage> createState() => _PaymentCollectionPageState();
@@ -90,6 +92,7 @@ class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
           orderTotal: _orderTotal,
           amountPaid: _paymentAmount,
           completedAt: DateTime.now(),
+          accessToken: widget.accessToken,
         ),
       ),
     );
