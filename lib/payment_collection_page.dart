@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'customer_card_data.dart';
 import 'delivery_completed_page.dart';
@@ -333,6 +334,12 @@ class _PaymentAmountCard extends StatelessWidget {
           TextField(
             controller: controller,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textInputAction: TextInputAction.done,
+            enableSuggestions: false,
+            autocorrect: false,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+            ],
             onChanged: (_) => onChanged(),
             style: const TextStyle(
               color: Color(0xFF637184),
