@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 
 class OrderDetailsData {
   const OrderDetailsData({
@@ -12,6 +16,8 @@ class OrderDetailsData {
     required this.total,
     required this.paymentMethod,
     required this.transactionId,
+    this.customerId = '',
+    this.accessToken = '',
   });
 
   final String orderId;
@@ -24,6 +30,8 @@ class OrderDetailsData {
   final double total;
   final String paymentMethod;
   final String transactionId;
+  final String customerId;
+  final String accessToken;
 }
 
 class OrderDetailsItem {
@@ -40,13 +48,215 @@ class OrderDetailsItem {
   final double lineTotal;
 }
 
-class OrderDetailsPage extends StatelessWidget {
+class OrderDetailsPage extends StatefulWidget {
   const OrderDetailsPage({super.key, required this.order});
 
   final OrderDetailsData order;
 
   @override
+  State<OrderDetailsPage> createState() => _OrderDetailsPageState();
+}
+
+class _OrderDetailsPageState extends State<OrderDetailsPage> {
+  late String _addressLine;
+  late String _addressCity;
+
+  @override
+  void initState() {
+    super.initState();
+    _addressLine = widget.order.addressLine;
+    _addressCity = widget.order.addressCity;
+    _fetchCustomerAddress();
+  }
+
+  Future<void> _fetchCustomerAddress() async {
+    if (widget.order.customerId.isEmpty) return;
+
+    final apiBaseUrl =
+        dotenv.env['API_BASE_URL'] ?? 'https://qa-api.orderx.online';
+
+    try {
+      final uri = Uri.parse(apiBaseUrl).replace(
+        path: '/customer_address/address-management',
+        queryParameters: {'customerId': widget.order.customerId},
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.order.accessToken.isNotEmpty)
+            'Authorization': 'Bearer ${widget.order.accessToken}',
+        },
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+
+      final responseBody = _decodeResponseBody(response.body);
+      final fetchedAddress = _parseCustomerAddress(responseBody);
+      if (fetchedAddress.isEmpty || !mounted) return;
+
+      setState(() {
+        _addressLine = fetchedAddress;
+        _addressCity = '';
+      });
+    } catch (_) {
+      // Keep the fallback address already passed from the order history page.
+    }
+  }
+
+  Map<String, dynamic> _decodeResponseBody(String body) {
+    if (body.isEmpty) return const {};
+
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is List) return {'data': decoded};
+
+    return const {};
+  }
+
+  String _parseCustomerAddress(Map<String, dynamic> responseBody) {
+    final rawAddresses = _firstListFromPaths(responseBody, const [
+      ['data'],
+      ['addresses'],
+      ['address'],
+      ['items'],
+      ['rows'],
+      ['result'],
+      ['data', 'addresses'],
+      ['data', 'items'],
+      ['data', 'rows'],
+      ['result', 'addresses'],
+      ['result', 'items'],
+      ['result', 'rows'],
+    ]);
+
+    if (rawAddresses.isNotEmpty) {
+      final addressMaps = rawAddresses.whereType<Map<String, dynamic>>();
+      if (addressMaps.isEmpty) return '';
+      return _addressFromJson(addressMaps.first);
+    }
+
+    final addressMap =
+        _firstNestedMapFromPaths(responseBody, const [
+          ['data'],
+          ['address'],
+          ['result'],
+        ]) ??
+        responseBody;
+
+    return _addressFromJson(addressMap);
+  }
+
+  String _addressFromJson(Map<String, dynamic> json) {
+    final fullAddress = _firstStringFromKeys(json, const [
+      'address',
+      'fullAddress',
+      'full_address',
+      'deliveryAddress',
+      'delivery_address',
+      'customerAddress',
+      'customer_address',
+      'formattedAddress',
+      'formatted_address',
+    ]);
+
+    if (fullAddress.isNotEmpty) return fullAddress;
+
+    final addressParts = [
+      _firstStringFromKeys(json, const [
+        'addressLine1',
+        'address_line_1',
+        'address1',
+      ]),
+      _firstStringFromKeys(json, const [
+        'addressLine2',
+        'address_line_2',
+        'address2',
+      ]),
+      _firstStringFromKeys(json, const ['street']),
+      _firstStringFromKeys(json, const ['city']),
+      _firstStringFromKeys(json, const ['state', 'province']),
+      _firstStringFromKeys(json, const ['postalCode', 'postal_code', 'zip']),
+      _firstStringFromKeys(json, const ['country']),
+    ];
+
+    return addressParts.where((part) => part.isNotEmpty).join(', ');
+  }
+
+  List<dynamic> _firstListFromPaths(
+    Map<String, dynamic> source,
+    List<List<String>> paths,
+  ) {
+    for (final path in paths) {
+      final value = _valueAtPath(source, path);
+      if (value is List) return value;
+
+      if (value is Map<String, dynamic>) {
+        final nestedList = _firstListFromKeys(value, const [
+          'addresses',
+          'address',
+          'items',
+          'rows',
+          'data',
+          'result',
+        ]);
+        if (nestedList.isNotEmpty) return nestedList;
+      }
+    }
+
+    return const [];
+  }
+
+  List<dynamic> _firstListFromKeys(
+    Map<String, dynamic> source,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is List) return value;
+    }
+
+    return const [];
+  }
+
+  Map<String, dynamic>? _firstNestedMapFromPaths(
+    Map<String, dynamic> source,
+    List<List<String>> paths,
+  ) {
+    for (final path in paths) {
+      final value = _valueAtPath(source, path);
+      if (value is Map<String, dynamic>) return value;
+    }
+
+    return null;
+  }
+
+  String _firstStringFromKeys(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+      if (value is num) return value.toString();
+    }
+
+    return '';
+  }
+
+  Object? _valueAtPath(Map<String, dynamic> source, List<String> path) {
+    Object? current = source;
+
+    for (final key in path) {
+      if (current is! Map<String, dynamic>) return null;
+      current = current[key];
+    }
+
+    return current;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final order = widget.order;
+
     return Scaffold(
       backgroundColor: const Color(0xFFFDFCFB),
       body: SafeArea(
@@ -66,7 +276,11 @@ class OrderDetailsPage extends StatelessWidget {
                         const SizedBox(height: 28),
                         const _MapPreview(),
                         const SizedBox(height: 30),
-                        _CustomerDetailsCard(order: order),
+                        _CustomerDetailsCard(
+                          order: order,
+                          addressLine: _addressLine,
+                          addressCity: _addressCity,
+                        ),
                         const SizedBox(height: 32),
                         const _SectionLabel('ITEMS DELIVERED'),
                         const SizedBox(height: 20),
@@ -320,9 +534,15 @@ class _MapPreviewPainter extends CustomPainter {
 }
 
 class _CustomerDetailsCard extends StatelessWidget {
-  const _CustomerDetailsCard({required this.order});
+  const _CustomerDetailsCard({
+    required this.order,
+    required this.addressLine,
+    required this.addressCity,
+  });
 
   final OrderDetailsData order;
+  final String addressLine;
+  final String addressCity;
 
   @override
   Widget build(BuildContext context) {
@@ -397,7 +617,7 @@ class _CustomerDetailsCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      order.addressLine,
+                      addressLine,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -406,10 +626,10 @@ class _CustomerDetailsCard extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    if (order.addressCity.isNotEmpty) ...[
+                    if (addressCity.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
-                        order.addressCity,
+                        addressCity,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
