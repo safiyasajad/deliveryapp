@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
-import 'customer_card_data.dart';
+import '../customer_card_data.dart';
+import '../product_card_data.dart';
 import 'payment_collection_page.dart';
-import 'product_card_data.dart';
 
 // ProductSelectionPage opens after the delivery user chooses a customer.
 //

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'customer_card_data.dart';
+import '../customer_card_data.dart';
+import '../product_card_data.dart';
 import 'delivery_completed_page.dart';
-import 'product_card_data.dart';
 
 // PaymentCollectionPage is opened after ProductSelectionPage.
 //

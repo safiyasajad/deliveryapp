@@ -22,8 +22,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
-import 'customer_card_data.dart';
-import 'orderx_logo.dart';
+import '../customer_card_data.dart';
+import '../orderx_logo.dart';
 import 'product_selection_page.dart';
 
 // DeliveryDashboardPage is shown after a successful login.

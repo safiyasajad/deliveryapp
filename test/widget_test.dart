@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:deliveryapp/delivery_dashboard_page.dart';
+import 'package:deliveryapp/screens/delivery_dashboard_page.dart';
 import 'package:deliveryapp/main.dart';
 
 void main() {

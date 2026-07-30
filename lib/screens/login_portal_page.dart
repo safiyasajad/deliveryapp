@@ -20,8 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import '../orderx_logo.dart';
 import 'delivery_dashboard_page.dart';
-import 'orderx_logo.dart';
 
 // LoginPortalPage is the first screen of the delivery app.
 // Its responsibilities are:

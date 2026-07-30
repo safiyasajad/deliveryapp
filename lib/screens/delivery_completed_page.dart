@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'customer_card_data.dart';
+import '../customer_card_data.dart';
 
 // Final confirmation screen shown after the delivery user taps
 // "Complete Delivery" on PaymentCollectionPage.

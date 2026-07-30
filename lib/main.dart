@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-import 'login_portal_page.dart';
+import 'screens/login_portal_page.dart';
 
 // Application entry point.
 //
