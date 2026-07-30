@@ -1,61 +1,50 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 
 // Order history screen shown from the completed-delivery receipt flow.
 //
-// This page currently uses sample delivered orders because no backend order
-// history endpoint is wired into the app yet. When that API is available, the
-// `_orders` list should be replaced with fetched response data and the filter
-// chips/search input can be sent to the backend as query parameters.
+// This page fetches order rows from:
+// /orders/list?offset=1&limit=15&search=&sortBy=orderNumber&order=desc
+//
+// The endpoint is expected to return the order-management table data. Parsing
+// is intentionally flexible because backend response wrappers and field names
+// can vary between environments.
 class OrderHistoryPage extends StatefulWidget {
-  const OrderHistoryPage({super.key});
+  const OrderHistoryPage({super.key, required this.accessToken});
+
+  // JWT from login. The order list endpoint is called with
+  // Authorization: Bearer <token>, matching the customer/product screens.
+  final String accessToken;
 
   @override
   State<OrderHistoryPage> createState() => _OrderHistoryPageState();
 }
 
 class _OrderHistoryPageState extends State<OrderHistoryPage> {
+  static const int _orderPageSize = 15;
+
   final _searchController = TextEditingController();
+  Timer? _searchDebounce;
+
+  List<_OrderHistoryData> _orders = const [];
+  bool _isLoadingOrders = false;
+  String? _orderErrorMessage;
+
   String _selectedFilter = 'All Time';
   String _searchText = '';
 
-  static final List<_OrderHistoryData> _orders = [
-    _OrderHistoryData(
-      orderId: '#LP-9920-X1',
-      customerName: 'Sarah Jenkins',
-      dateTime: DateTime(2023, 10, 24, 14, 15),
-      total: 374.50,
-    ),
-    _OrderHistoryData(
-      orderId: '#LP-9915-K4',
-      customerName: 'Michael Chen',
-      dateTime: DateTime(2023, 10, 24, 11, 42),
-      total: 1250.00,
-    ),
-    _OrderHistoryData(
-      orderId: '#LP-9882-B2',
-      customerName: 'Elena Rodriguez',
-      dateTime: DateTime(2023, 10, 23, 17, 08),
-      total: 89.20,
-    ),
-    _OrderHistoryData(
-      orderId: '#LP-9870-W3',
-      customerName: 'David Wilson',
-      dateTime: DateTime(2023, 10, 23, 13, 22),
-      total: 215.15,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchOrders();
+  }
 
   List<_OrderHistoryData> get _filteredOrders {
-    final query = _searchText.trim().toLowerCase();
-
     return _orders.where((order) {
-      final matchesSearch =
-          query.isEmpty ||
-          order.orderId.toLowerCase().contains(query) ||
-          order.customerName.toLowerCase().contains(query);
-
-      if (!matchesSearch) return false;
-
       final now = DateTime.now();
       return switch (_selectedFilter) {
         'This Month' =>
@@ -66,8 +55,289 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     }).toList();
   }
 
+  Future<void> _fetchOrders() async {
+    final apiBaseUrl = dotenv.env['API_BASE_URL'];
+
+    if (apiBaseUrl == null || apiBaseUrl.isEmpty) {
+      setState(() {
+        _orderErrorMessage = 'API base URL is missing from .env.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingOrders = true;
+      _orderErrorMessage = null;
+    });
+
+    try {
+      if (widget.accessToken.isEmpty) {
+        throw Exception(
+          'Login token missing. Please log out and log in again.',
+        );
+      }
+
+      final uri = Uri.parse(apiBaseUrl).replace(
+        path: '/orders/list',
+        queryParameters: {
+          'offset': '1',
+          'limit': _orderPageSize.toString(),
+          'search': _searchText.trim(),
+          'sortBy': 'orderNumber',
+          'order': 'desc',
+        },
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.accessToken}',
+        },
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          'Order history request failed with status ${response.statusCode}.',
+        );
+      }
+
+      final responseBody = _decodeResponseBody(response.body);
+      final orders = _parseOrders(responseBody);
+
+      if (!mounted) return;
+
+      setState(() {
+        _orders = orders;
+        _isLoadingOrders = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _orders = const [];
+        _isLoadingOrders = false;
+        _orderErrorMessage = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Map<String, dynamic> _decodeResponseBody(String body) {
+    if (body.isEmpty) return const {};
+
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is List) return {'data': decoded};
+
+    return const {};
+  }
+
+  List<_OrderHistoryData> _parseOrders(Map<String, dynamic> responseBody) {
+    final rawOrders = _firstListFromPaths(responseBody, const [
+      ['data'],
+      ['orders'],
+      ['order'],
+      ['items'],
+      ['rows'],
+      ['result'],
+      ['result', 'orders'],
+      ['result', 'items'],
+      ['result', 'rows'],
+      ['data', 'orders'],
+      ['data', 'items'],
+      ['data', 'rows'],
+      ['data', 'result'],
+    ]);
+
+    return rawOrders
+        .whereType<Map<String, dynamic>>()
+        .map(_orderFromJson)
+        .where((order) => order.orderId.isNotEmpty)
+        .toList();
+  }
+
+  _OrderHistoryData _orderFromJson(Map<String, dynamic> json) {
+    final orderId = _firstStringFromKeys(json, const [
+      'orderNumber',
+      'order_number',
+      'orderNo',
+      'order_no',
+      'number',
+      'code',
+      'id',
+      '_id',
+    ]);
+
+    var customerName = _firstStringFromKeys(json, const [
+      'customerName',
+      'customer_name',
+      'clientName',
+      'client_name',
+      'name',
+    ]);
+
+    if (customerName.isEmpty) {
+      customerName = _firstStringFromNestedMap(
+        json,
+        const ['customer', 'customerDetails', 'customer_details', 'client'],
+        const [
+          'name',
+          'fullName',
+          'full_name',
+          'customerName',
+          'customer_name',
+          'companyName',
+          'company_name',
+        ],
+      );
+    }
+
+    final dateText = _firstStringFromKeys(json, const [
+      'dateTime',
+      'date_time',
+      'orderDate',
+      'order_date',
+      'createdAt',
+      'created_at',
+      'completedAt',
+      'completed_at',
+      'deliveredAt',
+      'delivered_at',
+      'updatedAt',
+      'updated_at',
+    ]);
+
+    final status = _firstStringFromKeys(json, const [
+      'status',
+      'orderStatus',
+      'order_status',
+      'deliveryStatus',
+      'delivery_status',
+    ]);
+
+    return _OrderHistoryData(
+      orderId: orderId,
+      customerName: customerName.isEmpty ? 'Unknown Customer' : customerName,
+      dateTime: _parseDateTime(dateText),
+      total: _firstDoubleFromKeys(json, const [
+        'total',
+        'totalAmount',
+        'total_amount',
+        'orderTotal',
+        'order_total',
+        'grandTotal',
+        'grand_total',
+        'netAmount',
+        'net_amount',
+        'amount',
+      ]),
+      status: status.isEmpty ? 'DELIVERED' : status.toUpperCase(),
+    );
+  }
+
+  List<dynamic> _firstListFromPaths(
+    Map<String, dynamic> source,
+    List<List<String>> paths,
+  ) {
+    for (final path in paths) {
+      final value = _valueAtPath(source, path);
+      if (value is List) return value;
+
+      if (value is Map<String, dynamic>) {
+        final nestedList = _firstListFromKeys(value, const [
+          'orders',
+          'order',
+          'items',
+          'rows',
+          'data',
+          'result',
+        ]);
+        if (nestedList.isNotEmpty) return nestedList;
+      }
+    }
+
+    return const [];
+  }
+
+  List<dynamic> _firstListFromKeys(
+    Map<String, dynamic> source,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is List) return value;
+    }
+
+    return const [];
+  }
+
+  String _firstStringFromKeys(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+      if (value is num) return value.toString();
+    }
+
+    return '';
+  }
+
+  String _firstStringFromNestedMap(
+    Map<String, dynamic> source,
+    List<String> mapKeys,
+    List<String> valueKeys,
+  ) {
+    for (final mapKey in mapKeys) {
+      final value = source[mapKey];
+      if (value is Map<String, dynamic>) {
+        final nestedValue = _firstStringFromKeys(value, valueKeys);
+        if (nestedValue.isNotEmpty) return nestedValue;
+      }
+    }
+
+    return '';
+  }
+
+  double _firstDoubleFromKeys(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        final parsed = double.tryParse(value.trim().replaceAll(',', ''));
+        if (parsed != null) return parsed;
+      }
+    }
+
+    return 0;
+  }
+
+  Object? _valueAtPath(Map<String, dynamic> source, List<String> path) {
+    Object? current = source;
+
+    for (final key in path) {
+      if (current is! Map<String, dynamic>) return null;
+      current = current[key];
+    }
+
+    return current;
+  }
+
+  DateTime _parseDateTime(String value) {
+    if (value.isEmpty) return DateTime.now();
+
+    return DateTime.tryParse(value) ?? DateTime.now();
+  }
+
+  void _scheduleSearch(String value) {
+    _searchDebounce?.cancel();
+
+    setState(() => _searchText = value);
+
+    _searchDebounce = Timer(const Duration(milliseconds: 450), _fetchOrders);
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -93,9 +363,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                       children: [
                         _HistorySearchField(
                           controller: _searchController,
-                          onChanged: (value) {
-                            setState(() => _searchText = value);
-                          },
+                          onChanged: _scheduleSearch,
                         ),
                         const SizedBox(height: 24),
                         _HistoryFilterBar(
@@ -105,7 +373,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                           },
                         ),
                         const SizedBox(height: 34),
-                        if (filteredOrders.isEmpty)
+                        if (_isLoadingOrders)
+                          const _OrderHistoryLoadingList()
+                        else if (_orderErrorMessage != null)
+                          _OrderHistoryErrorMessage(
+                            message: _orderErrorMessage!,
+                            onRetry: _fetchOrders,
+                          )
+                        else if (filteredOrders.isEmpty)
                           const _EmptyHistoryMessage()
                         else
                           for (
@@ -570,6 +845,121 @@ class _EmptyHistoryMessage extends StatelessWidget {
           fontSize: 18,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+class _OrderHistoryErrorMessage extends StatelessWidget {
+  const _OrderHistoryErrorMessage({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD2D7E0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            message,
+            style: const TextStyle(
+              color: Color(0xFF243348),
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderHistoryLoadingList extends StatelessWidget {
+  const _OrderHistoryLoadingList();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        _OrderHistorySkeletonCard(),
+        SizedBox(height: 20),
+        _OrderHistorySkeletonCard(),
+        SizedBox(height: 20),
+        _OrderHistorySkeletonCard(),
+      ],
+    );
+  }
+}
+
+class _OrderHistorySkeletonCard extends StatelessWidget {
+  const _OrderHistorySkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD2D7E0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: const [
+          Row(
+            children: [
+              Expanded(child: _HistorySkeletonBlock(height: 26)),
+              SizedBox(width: 80),
+              _HistorySkeletonBlock(width: 118, height: 32),
+            ],
+          ),
+          SizedBox(height: 16),
+          _HistorySkeletonBlock(width: 180, height: 20),
+          SizedBox(height: 24),
+          Divider(height: 1, color: Color(0xFFE5E7EB)),
+          SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(child: _HistorySkeletonBlock(height: 42)),
+              SizedBox(width: 80),
+              _HistorySkeletonBlock(width: 92, height: 42),
+            ],
+          ),
+          SizedBox(height: 28),
+          _HistorySkeletonBlock(width: 140, height: 22),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistorySkeletonBlock extends StatelessWidget {
+  const _HistorySkeletonBlock({required this.height, this.width});
+
+  final double height;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFD2D7E0),
+        borderRadius: BorderRadius.circular(8),
       ),
     );
   }
