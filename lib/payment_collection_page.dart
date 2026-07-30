@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'completed_order_inventory.dart';
 import 'customer_card_data.dart';
 import 'delivery_completed_page.dart';
 import 'product_card_data.dart';
@@ -24,6 +23,7 @@ class PaymentCollectionPage extends StatefulWidget {
 
 class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
   final _paymentAmountController = TextEditingController();
+  bool _hasCompletedDelivery = false;
 
   double get _orderTotal {
     return widget.selectedProducts.fold<double>(
@@ -52,10 +52,11 @@ class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
   }
 
   void _completeDelivery() {
+    if (_hasCompletedDelivery) return;
+    _hasCompletedDelivery = true;
+
     // Placeholder until the backend complete-delivery/status endpoint is known.
     // For now, open the completed screen with the local order summary values.
-    CompletedOrderInventory.recordCompletedOrder(widget.selectedProducts);
-
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (context) => DeliveryCompletedPage(

@@ -1,6 +1,9 @@
-// Small model for one product row.
-// ProductSelectionPage uses it for selectable product cards, and
-// PaymentCollectionPage uses the selected rows for the order summary.
+// Immutable data model for one product row in the delivery workflow.
+//
+// ProductSelectionPage creates this object from the backend product list.
+// The same object is copied when the user selects an item or changes quantity,
+// then the selected rows are passed to PaymentCollectionPage for the order
+// summary and total calculation.
 class ProductCardData {
   const ProductCardData({
     required this.id,
@@ -11,13 +14,27 @@ class ProductCardData {
     required this.isSelected,
   });
 
+  // Backend product id. This should be sent to future order/stock endpoints.
   final String id;
+
+  // Product display name shown on product cards and order summaries.
   final String name;
+
+  // Quantity currently available according to the backend product response.
+  // The frontend no longer deducts this locally; it trusts the fetched value.
   final int availableQuantity;
+
+  // Price for one unit of the product.
   final double unitPrice;
+
+  // Quantity selected for the current in-progress order.
   final int quantity;
+
+  // Whether this product is included in the current order.
   final bool isSelected;
 
+  // Creates a modified copy while keeping the model immutable. Product
+  // selection and quantity changes use this instead of mutating fields.
   ProductCardData copyWith({
     String? id,
     String? name,

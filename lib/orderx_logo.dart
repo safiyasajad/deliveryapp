@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 
+// Reusable OrderX logo widget used by the login screen.
+//
+// The logo is intentionally painted in code instead of stored as a PNG/SVG
+// asset. That keeps the project lightweight and lets the same mark scale
+// cleanly if a page needs a different logo size.
 class OrderXLogo extends StatelessWidget {
   const OrderXLogo({super.key, this.size = 145, this.borderRadius = 26});
 
+  // Width and height of the square logo container.
   final double size;
+
+  // Corner radius for the blue square background.
   final double borderRadius;
 
   @override
@@ -64,6 +72,7 @@ class _OrderMarkPainter extends CustomPainter {
 
   @override
   // The logo geometry and colors are fixed, so Flutter does not need to repaint
-  // this custom painter unless the painter object itself changes.
+  // this custom painter unless the painter object itself changes. Returning
+  // false avoids unnecessary redraw work during parent rebuilds.
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

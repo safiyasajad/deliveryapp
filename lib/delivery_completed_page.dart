@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 
 import 'customer_card_data.dart';
 
+// Final confirmation screen shown after the delivery user taps
+// "Complete Delivery" on PaymentCollectionPage.
+//
+// This page is presentation-only. It does not update inventory or save the
+// order to the backend. When the backend completion endpoint is added,
+// PaymentCollectionPage should call that endpoint first, then pass the backend
+// response values into this page.
 class DeliveryCompletedPage extends StatelessWidget {
   const DeliveryCompletedPage({
     super.key,
@@ -12,23 +19,39 @@ class DeliveryCompletedPage extends StatelessWidget {
     this.orderId = '#LP-9920-X1',
   });
 
+  // Customer that was selected at the start of the delivery flow.
   final CustomerCardData customer;
+
+  // Total value of the selected products: unit price multiplied by quantity.
   final double orderTotal;
+
+  // Amount collected from the customer. An empty payment input is parsed as 0.
   final double amountPaid;
+
+  // Time when the user completed the delivery in the app.
   final DateTime completedAt;
+
+  // Temporary display id until real order ids are returned by the backend.
   final String orderId;
 
+  // Shows normal remaining balance for underpayment. If the driver collected
+  // more than the total, this becomes the positive overpaid/change amount.
   double get _remainingBalance {
     if (_hasOverpayment) return amountPaid - orderTotal;
     return orderTotal - amountPaid;
   }
 
+  // Used by the summary table to style overpaid values in blue and prefix them
+  // with a plus sign.
   bool get _hasOverpayment {
     return amountPaid > orderTotal;
   }
 
   @override
   Widget build(BuildContext context) {
+    // The page follows the same mobile-first shell as the other screens:
+    // cream background, SafeArea, centered max-width content, fixed header, and
+    // a scrollable body so the summary/actions fit on smaller devices.
     return Scaffold(
       backgroundColor: const Color(0xFFFDFCFB),
       body: SafeArea(
@@ -96,12 +119,16 @@ class DeliveryCompletedPage extends StatelessWidget {
   }
 
   void _startNewDelivery(BuildContext context) {
+    // PaymentCollectionPage opened this screen with pushReplacement(), so the
+    // navigator stack is usually: dashboard -> product selection -> completed.
+    // Popping twice returns the user to the dashboard to start another delivery.
     final navigator = Navigator.of(context);
     if (navigator.canPop()) navigator.pop();
     if (navigator.canPop()) navigator.pop();
   }
 
   void _showHistoryPlaceholder(BuildContext context) {
+    // Placeholder action until a real order-history screen or route exists.
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -117,6 +144,8 @@ class _CompletedHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Header mirrors the reference design: no back button, just the customer
+    // name centered above a subtle bottom divider.
     return Container(
       height: 74,
       alignment: Alignment.center,
@@ -145,6 +174,8 @@ class _SuccessMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The success badge is built with nested circles and a Material check icon
+    // so it scales crisply without an image asset.
     return Center(
       child: Container(
         width: 180,
@@ -190,6 +221,8 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Summary card is a table-like column: header band, divider, then repeated
+    // rows with a left label and right-aligned value.
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -246,6 +279,7 @@ class _SummaryCard extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dateTime) {
+    // Manual month formatting keeps the app free from an extra intl dependency.
     const months = [
       'Jan',
       'Feb',
@@ -282,6 +316,8 @@ class _SummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Flexible right-side value prevents long customer names or timestamps from
+    // overflowing on narrow phones; extra text is ellipsized.
     return Container(
       constraints: const BoxConstraints(minHeight: 72),
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
@@ -333,6 +369,8 @@ class _CompletionActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Bottom actions are part of the scrollable content instead of a fixed
+    // bottom bar because the completed screen is mostly a receipt/summary view.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

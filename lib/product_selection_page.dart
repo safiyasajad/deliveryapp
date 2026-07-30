@@ -353,7 +353,7 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
     });
   }
 
-  void _submitOrder() {
+  Future<void> _submitOrder() async {
     final selectedProducts = _products
         .where((product) => product.isSelected)
         .toList();
@@ -363,7 +363,7 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
     // Submit Order opens the payment collection step.
     // Only selected products are passed forward, so they become the order
     // summary on the next page.
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => PaymentCollectionPage(
           customer: widget.customer,
@@ -371,6 +371,10 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
         ),
       ),
     );
+
+    // If the user returns here after a completed order or by backing out of
+    // payment, refresh so completed-order deductions are reflected.
+    if (mounted) _fetchProducts();
   }
 
   @override
