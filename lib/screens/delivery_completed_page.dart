@@ -17,6 +17,7 @@ class DeliveryCompletedPage extends StatelessWidget {
     required this.orderTotal,
     required this.amountPaid,
     required this.completedAt,
+    required this.accessToken,
     this.orderId = '#LP-9920-X1',
   });
 
@@ -31,6 +32,10 @@ class DeliveryCompletedPage extends StatelessWidget {
 
   // Time when the user completed the delivery in the app.
   final DateTime completedAt;
+
+  // JWT from login, forwarded so the order-history page can call the protected
+  // backend order list endpoint.
+  final String accessToken;
 
   // Temporary display id until real order ids are returned by the backend.
   final String orderId;
@@ -130,7 +135,9 @@ class DeliveryCompletedPage extends StatelessWidget {
 
   void _openOrderHistory(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (context) => const OrderHistoryPage()),
+      MaterialPageRoute<void>(
+        builder: (context) => OrderHistoryPage(accessToken: accessToken),
+      ),
     );
   }
 }
