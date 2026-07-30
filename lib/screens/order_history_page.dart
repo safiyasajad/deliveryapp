@@ -105,7 +105,15 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       }
 
       final responseBody = _decodeResponseBody(response.body);
-      final orders = _parseOrders(responseBody);
+      final ordersWithoutAddresses = _parseOrders(responseBody);
+      final orders = await Future.wait(
+        ordersWithoutAddresses.map(
+          (order) => _orderWithFetchedCustomerAddress(
+            apiBaseUrl: apiBaseUrl,
+            order: order,
+          ),
+        ),
+      );
 
       if (!mounted) return;
 
@@ -178,6 +186,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       'name',
     ]);
 
+    var customerId = _firstStringFromKeys(json, const [
+      'customerId',
+      'customer_id',
+      'customerID',
+      'clientId',
+      'client_id',
+    ]);
+
     if (customerName.isEmpty) {
       customerName = _firstStringFromNestedMap(
         json,
@@ -191,6 +207,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
           'companyName',
           'company_name',
         ],
+      );
+    }
+
+    if (customerId.isEmpty) {
+      customerId = _firstStringFromNestedMap(
+        json,
+        const ['customer', 'customerDetails', 'customer_details', 'client'],
+        const ['id', '_id', 'customerId', 'customer_id', 'uuid'],
       );
     }
 
@@ -228,6 +252,23 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       'street',
     ]);
 
+    final nestedAddressLine = _firstStringFromNestedMap(
+      json,
+      const ['customer', 'customerDetails', 'customer_details', 'client'],
+      const [
+        'address',
+        'fullAddress',
+        'full_address',
+        'deliveryAddress',
+        'delivery_address',
+        'customerAddress',
+        'customer_address',
+        'addressLine1',
+        'address_line_1',
+        'street',
+      ],
+    );
+
     final addressCity = _firstStringFromKeys(json, const [
       'city',
       'state',
@@ -236,6 +277,12 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       'postal_code',
       'zip',
     ]);
+
+    final nestedAddressCity = _firstStringFromNestedMap(
+      json,
+      const ['customer', 'customerDetails', 'customer_details', 'client'],
+      const ['city', 'state', 'province', 'postalCode', 'postal_code', 'zip'],
+    );
 
     final paymentMethod = _firstStringFromKeys(json, const [
       'paymentMethod',
@@ -269,16 +316,125 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
 
     return _OrderHistoryData(
       orderId: orderId,
+      customerId: customerId,
       customerName: customerName.isEmpty ? 'Unknown Customer' : customerName,
       dateTime: _parseDateTime(dateText),
       total: total,
       status: status.isEmpty ? 'DELIVERED' : status.toUpperCase(),
-      addressLine: addressLine.isEmpty ? 'No address available' : addressLine,
-      addressCity: addressCity,
+      addressLine: _firstNonEmptyString(
+        addressLine,
+        nestedAddressLine,
+        'No address available',
+      ),
+      addressCity: _firstNonEmptyString(addressCity, nestedAddressCity),
       paymentMethod: paymentMethod.isEmpty ? 'Cash' : paymentMethod,
       transactionId: transactionId.isEmpty ? 'Not available' : transactionId,
       items: _parseDeliveredItems(json, total),
     );
+  }
+
+  Future<_OrderHistoryData> _orderWithFetchedCustomerAddress({
+    required String apiBaseUrl,
+    required _OrderHistoryData order,
+  }) async {
+    if (order.customerId.isEmpty) return order;
+
+    try {
+      final uri = Uri.parse(apiBaseUrl).replace(
+        path: '/customer_address/address-management',
+        queryParameters: {'customerId': order.customerId},
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.accessToken.isNotEmpty)
+            'Authorization': 'Bearer ${widget.accessToken}',
+        },
+      );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return order;
+      }
+
+      final responseBody = _decodeResponseBody(response.body);
+      final fetchedAddress = _parseCustomerAddress(responseBody);
+      if (fetchedAddress.isEmpty) return order;
+
+      return order.copyWith(addressLine: fetchedAddress, addressCity: '');
+    } catch (_) {
+      return order;
+    }
+  }
+
+  String _parseCustomerAddress(Map<String, dynamic> responseBody) {
+    final rawAddresses = _firstListFromPaths(responseBody, const [
+      ['data'],
+      ['addresses'],
+      ['address'],
+      ['items'],
+      ['rows'],
+      ['result'],
+      ['data', 'addresses'],
+      ['data', 'items'],
+      ['data', 'rows'],
+      ['result', 'addresses'],
+      ['result', 'items'],
+      ['result', 'rows'],
+    ]);
+
+    if (rawAddresses.isNotEmpty) {
+      final addressMaps = rawAddresses.whereType<Map<String, dynamic>>();
+      if (addressMaps.isEmpty) return '';
+      return _addressFromJson(addressMaps.first);
+    }
+
+    final addressMap =
+        _firstNestedMapFromPaths(responseBody, const [
+          ['data'],
+          ['address'],
+          ['result'],
+        ]) ??
+        responseBody;
+
+    return _addressFromJson(addressMap);
+  }
+
+  String _addressFromJson(Map<String, dynamic> json) {
+    final fullAddress = _firstStringFromKeys(json, const [
+      'address',
+      'fullAddress',
+      'full_address',
+      'deliveryAddress',
+      'delivery_address',
+      'customerAddress',
+      'customer_address',
+      'formattedAddress',
+      'formatted_address',
+    ]);
+
+    if (fullAddress.isNotEmpty) return fullAddress;
+
+    final addressParts = [
+      _firstStringFromKeys(json, const [
+        'addressLine1',
+        'address_line_1',
+        'address1',
+      ]),
+      _firstStringFromKeys(json, const [
+        'addressLine2',
+        'address_line_2',
+        'address2',
+      ]),
+      _firstStringFromKeys(json, const ['street']),
+      _firstStringFromKeys(json, const ['city']),
+      _firstStringFromKeys(json, const ['state', 'province']),
+      _firstStringFromKeys(json, const ['postalCode', 'postal_code', 'zip']),
+      _firstStringFromKeys(json, const ['country']),
+    ];
+
+    return addressParts.where((part) => part.isNotEmpty).join(', ');
   }
 
   List<OrderDetailsItem> _parseDeliveredItems(
@@ -435,6 +591,28 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     return '';
   }
 
+  String _firstNonEmptyString(
+    String first,
+    String second, [
+    String fallback = '',
+  ]) {
+    if (first.isNotEmpty) return first;
+    if (second.isNotEmpty) return second;
+    return fallback;
+  }
+
+  Map<String, dynamic>? _firstNestedMapFromPaths(
+    Map<String, dynamic> source,
+    List<List<String>> paths,
+  ) {
+    for (final path in paths) {
+      final value = _valueAtPath(source, path);
+      if (value is Map<String, dynamic>) return value;
+    }
+
+    return null;
+  }
+
   double _firstDoubleFromKeys(Map<String, dynamic> source, List<String> keys) {
     for (final key in keys) {
       final value = source[key];
@@ -561,6 +739,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
 class _OrderHistoryData {
   const _OrderHistoryData({
     required this.orderId,
+    required this.customerId,
     required this.customerName,
     required this.dateTime,
     required this.total,
@@ -573,6 +752,7 @@ class _OrderHistoryData {
   });
 
   final String orderId;
+  final String customerId;
   final String customerName;
   final DateTime dateTime;
   final double total;
@@ -582,6 +762,34 @@ class _OrderHistoryData {
   final String paymentMethod;
   final String transactionId;
   final List<OrderDetailsItem> items;
+
+  _OrderHistoryData copyWith({
+    String? orderId,
+    String? customerId,
+    String? customerName,
+    DateTime? dateTime,
+    double? total,
+    String? status,
+    String? addressLine,
+    String? addressCity,
+    String? paymentMethod,
+    String? transactionId,
+    List<OrderDetailsItem>? items,
+  }) {
+    return _OrderHistoryData(
+      orderId: orderId ?? this.orderId,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      dateTime: dateTime ?? this.dateTime,
+      total: total ?? this.total,
+      status: status ?? this.status,
+      addressLine: addressLine ?? this.addressLine,
+      addressCity: addressCity ?? this.addressCity,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      transactionId: transactionId ?? this.transactionId,
+      items: items ?? this.items,
+    );
+  }
 }
 
 class _OrderHistoryHeader extends StatelessWidget {
