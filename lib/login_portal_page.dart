@@ -1,3 +1,19 @@
+// Login portal screen.
+//
+// This is the first screen in the delivery app. It authenticates the delivery
+// user against the backend, loads the signed-in user's display name, and then
+// opens DeliveryDashboardPage with the JWT access token.
+//
+// Network flow:
+// 1. POST email/password to /login.
+// 2. Extract the returned access token from the response.
+// 3. Call /user/personal-info with Authorization: Bearer <token>.
+// 4. Navigate to the dashboard when both login and profile loading succeed.
+//
+// UI flow:
+// - The login button shows a loading state while requests are in progress.
+// - Errors are shown inside the page instead of navigating away.
+// - When the user logs out/back-navigates from the dashboard, the form clears.
 import 'dart:convert';
 
 import 'package:flutter/material.dart';

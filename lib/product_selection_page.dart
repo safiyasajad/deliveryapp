@@ -9,8 +9,19 @@ import 'payment_collection_page.dart';
 import 'product_card_data.dart';
 
 // ProductSelectionPage opens after the delivery user chooses a customer.
-// It shows the selected customer at the top and fetches product data from the
-// backend so the user can choose products for the order.
+//
+// Responsibilities:
+// - Show the selected customer name/address at the top.
+// - Fetch product stock and prices from the backend product endpoint.
+// - Let the delivery user choose one or more products.
+// - Clamp each chosen quantity between 1 and the backend available quantity.
+// - Pass only selected products to PaymentCollectionPage.
+//
+// Inventory rule:
+// The frontend does not deduct stock locally after an order is completed.
+// Product availability is always based on availableQuantity returned by the
+// backend, so once the backend deducts inventory, this page will show the new
+// value after the next fetch.
 class ProductSelectionPage extends StatefulWidget {
   const ProductSelectionPage({
     super.key,
@@ -67,6 +78,8 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
   }
 
   Future<void> _fetchProducts() async {
+    // Fetch fresh product data from the backend. This is the single source of
+    // truth for available quantities, prices, and out-of-stock status.
     final apiBaseUrl = dotenv.env['API_BASE_URL'];
 
     if (apiBaseUrl == null || apiBaseUrl.isEmpty) {
@@ -200,6 +213,8 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
       'description',
     ]);
 
+    // Keep the backend stock value unchanged. No frontend order-completion
+    // deductions are applied here.
     final availableQuantity = _firstIntFromKeys(json, const [
       'availableQuantity',
       'available_quantity',
@@ -360,9 +375,9 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
 
     if (selectedProducts.isEmpty) return;
 
-    // Submit Order opens the payment collection step.
-    // Only selected products are passed forward, so they become the order
-    // summary on the next page.
+    // Submit Order opens the payment collection step. Only selected products
+    // are passed forward, so PaymentCollectionPage receives an exact snapshot
+    // of the order lines and quantities chosen by the driver.
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => PaymentCollectionPage(
@@ -372,8 +387,9 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
       ),
     );
 
-    // If the user returns here after a completed order or by backing out of
-    // payment, refresh so completed-order deductions are reflected.
+    // If the user returns here after payment/completion, fetch products again.
+    // Any real stock deduction should already have happened on the backend,
+    // so this refresh picks up the backend's latest availableQuantity values.
     if (mounted) _fetchProducts();
   }
 

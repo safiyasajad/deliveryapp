@@ -4,9 +4,20 @@ import 'customer_card_data.dart';
 import 'delivery_completed_page.dart';
 import 'product_card_data.dart';
 
-// PaymentCollectionPage is opened after products are selected.
-// It shows the selected products as the order summary and lets the delivery
-// user enter the amount collected from the customer.
+// PaymentCollectionPage is opened after ProductSelectionPage.
+//
+// Responsibilities:
+// - Show the selected product rows as an order summary.
+// - Calculate the total, paid amount, and remaining balance in the frontend.
+// - Allow completing delivery even when the paid amount is 0 or less than the
+//   total, because partial/unpaid deliveries are allowed.
+// - Navigate to DeliveryCompletedPage with the locally calculated summary.
+//
+// Important backend note:
+// This page currently does not deduct product inventory. Once the backend has a
+// delivery-completion endpoint, _completeDelivery() should call it. The product
+// list will then show reduced stock naturally because ProductSelectionPage
+// fetches availableQuantity from the backend.
 class PaymentCollectionPage extends StatefulWidget {
   const PaymentCollectionPage({
     super.key,
@@ -23,9 +34,14 @@ class PaymentCollectionPage extends StatefulWidget {
 
 class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
   final _paymentAmountController = TextEditingController();
+
+  // Prevents accidental double taps from opening two completed screens or
+  // later calling a backend completion endpoint twice.
   bool _hasCompletedDelivery = false;
 
   double get _orderTotal {
+    // Total is calculated from selected products only. Each row contributes
+    // unit price multiplied by the quantity chosen on ProductSelectionPage.
     return widget.selectedProducts.fold<double>(
       0,
       (total, product) => total + (product.unitPrice * product.quantity),
@@ -33,15 +49,22 @@ class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
   }
 
   double get _paymentAmount {
+    // Empty or invalid input is treated as 0. This matches the requested
+    // behavior: leaving Payment Amount blank should still allow completion.
     return double.tryParse(_paymentAmountController.text.trim()) ?? 0;
   }
 
   double get _remainingBalance {
+    // The payment page shows only unpaid balance. If the user overpays, the
+    // displayed balance is clamped to 0 here; DeliveryCompletedPage shows the
+    // overpaid amount as a positive blue value in the final summary.
     final remaining = _orderTotal - _paymentAmount;
     return remaining < 0 ? 0 : remaining;
   }
 
   bool get _canCompleteDelivery {
+    // Completion is allowed for any payment amount, including blank/0.
+    // The only requirement is that there is an order to complete.
     return widget.selectedProducts.isNotEmpty;
   }
 
@@ -57,6 +80,8 @@ class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
 
     // Placeholder until the backend complete-delivery/status endpoint is known.
     // For now, open the completed screen with the local order summary values.
+    // Do not modify product quantities here; stock should be updated by the
+    // backend and reflected when products are fetched again.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (context) => DeliveryCompletedPage(

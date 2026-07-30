@@ -1,3 +1,21 @@
+// Delivery dashboard screen.
+//
+// This page is the first authenticated screen after login. It fetches customers
+// from the backend, lets the delivery user search/select one customer, and
+// opens ProductSelectionPage for the selected customer.
+//
+// Data flow:
+// - LoginPortalPage passes in userName and accessToken.
+// - accessToken is attached to protected customer/address API requests.
+// - Customers are loaded in pages for faster initial rendering.
+// - Each customer's address may be fetched from a separate endpoint after the
+//   base customer list is loaded.
+//
+// UI flow:
+// - Loading, empty, error, and lazy-load states are shown inside the customer
+//   panel.
+// - A selected customer stays highlighted.
+// - Continue is enabled only after a customer is selected.
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
