@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'completed_order_inventory.dart';
 import 'customer_card_data.dart';
+import 'delivery_completed_page.dart';
 import 'product_card_data.dart';
 
 // PaymentCollectionPage is opened after products are selected.
@@ -12,8 +14,7 @@ class PaymentCollectionPage extends StatefulWidget {
     required this.customer,
     required this.selectedProducts,
   });
- 
- 
+
   final CustomerCardData customer;
   final List<ProductCardData> selectedProducts;
 
@@ -41,7 +42,7 @@ class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
   }
 
   bool get _canCompleteDelivery {
-    return widget.selectedProducts.isNotEmpty && _paymentAmount >= _orderTotal;
+    return widget.selectedProducts.isNotEmpty;
   }
 
   @override
@@ -52,13 +53,19 @@ class _PaymentCollectionPageState extends State<PaymentCollectionPage> {
 
   void _completeDelivery() {
     // Placeholder until the backend complete-delivery/status endpoint is known.
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('Delivery completed for ${widget.customer.name}'),
+    // For now, open the completed screen with the local order summary values.
+    CompletedOrderInventory.recordCompletedOrder(widget.selectedProducts);
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (context) => DeliveryCompletedPage(
+          customer: widget.customer,
+          orderTotal: _orderTotal,
+          amountPaid: _paymentAmount,
+          completedAt: DateTime.now(),
         ),
-      );
+      ),
+    );
   }
 
   @override
