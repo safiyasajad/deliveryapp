@@ -16,11 +16,20 @@ import 'view_recipt_page.dart';
 // is intentionally flexible because backend response wrappers and field names
 // can vary between environments.
 class OrderHistoryPage extends StatefulWidget {
-  const OrderHistoryPage({super.key, required this.accessToken});
+  const OrderHistoryPage({
+    super.key,
+    required this.accessToken,
+    this.dashboardCustomerId = '',
+  });
 
   // JWT from login. The order list endpoint is called with
   // Authorization: Bearer <token>, matching the customer/product screens.
   final String accessToken;
+
+  // Customer selected on the delivery dashboard. This is only used as a
+  // fallback id when an order row does not include its own customer id, so the
+  // receipt page can fetch the customer's saved address.
+  final String dashboardCustomerId;
 
   @override
   State<OrderHistoryPage> createState() => _OrderHistoryPageState();
@@ -105,15 +114,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       }
 
       final responseBody = _decodeResponseBody(response.body);
-      final ordersWithoutAddresses = _parseOrders(responseBody);
-      final orders = await Future.wait(
-        ordersWithoutAddresses.map(
-          (order) => _orderWithFetchedCustomerAddress(
-            apiBaseUrl: apiBaseUrl,
-            order: order,
-          ),
-        ),
-      );
+      final orders = _parseOrders(responseBody);
 
       if (!mounted) return;
 
@@ -333,110 +334,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     );
   }
 
-  Future<_OrderHistoryData> _orderWithFetchedCustomerAddress({
-    required String apiBaseUrl,
-    required _OrderHistoryData order,
-  }) async {
-    if (order.customerId.isEmpty) return order;
-
-    try {
-      final uri = Uri.parse(apiBaseUrl).replace(
-        path: '/customer_address/address-management',
-        queryParameters: {'customerId': order.customerId},
-      );
-
-      final response = await http.get(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.accessToken.isNotEmpty)
-            'Authorization': 'Bearer ${widget.accessToken}',
-        },
-      );
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return order;
-      }
-
-      final responseBody = _decodeResponseBody(response.body);
-      final fetchedAddress = _parseCustomerAddress(responseBody);
-      if (fetchedAddress.isEmpty) return order;
-
-      return order.copyWith(addressLine: fetchedAddress, addressCity: '');
-    } catch (_) {
-      return order;
-    }
-  }
-
-  String _parseCustomerAddress(Map<String, dynamic> responseBody) {
-    final rawAddresses = _firstListFromPaths(responseBody, const [
-      ['data'],
-      ['addresses'],
-      ['address'],
-      ['items'],
-      ['rows'],
-      ['result'],
-      ['data', 'addresses'],
-      ['data', 'items'],
-      ['data', 'rows'],
-      ['result', 'addresses'],
-      ['result', 'items'],
-      ['result', 'rows'],
-    ]);
-
-    if (rawAddresses.isNotEmpty) {
-      final addressMaps = rawAddresses.whereType<Map<String, dynamic>>();
-      if (addressMaps.isEmpty) return '';
-      return _addressFromJson(addressMaps.first);
-    }
-
-    final addressMap =
-        _firstNestedMapFromPaths(responseBody, const [
-          ['data'],
-          ['address'],
-          ['result'],
-        ]) ??
-        responseBody;
-
-    return _addressFromJson(addressMap);
-  }
-
-  String _addressFromJson(Map<String, dynamic> json) {
-    final fullAddress = _firstStringFromKeys(json, const [
-      'address',
-      'fullAddress',
-      'full_address',
-      'deliveryAddress',
-      'delivery_address',
-      'customerAddress',
-      'customer_address',
-      'formattedAddress',
-      'formatted_address',
-    ]);
-
-    if (fullAddress.isNotEmpty) return fullAddress;
-
-    final addressParts = [
-      _firstStringFromKeys(json, const [
-        'addressLine1',
-        'address_line_1',
-        'address1',
-      ]),
-      _firstStringFromKeys(json, const [
-        'addressLine2',
-        'address_line_2',
-        'address2',
-      ]),
-      _firstStringFromKeys(json, const ['street']),
-      _firstStringFromKeys(json, const ['city']),
-      _firstStringFromKeys(json, const ['state', 'province']),
-      _firstStringFromKeys(json, const ['postalCode', 'postal_code', 'zip']),
-      _firstStringFromKeys(json, const ['country']),
-    ];
-
-    return addressParts.where((part) => part.isNotEmpty).join(', ');
-  }
-
   List<OrderDetailsItem> _parseDeliveredItems(
     Map<String, dynamic> json,
     double orderTotal,
@@ -601,18 +498,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     return fallback;
   }
 
-  Map<String, dynamic>? _firstNestedMapFromPaths(
-    Map<String, dynamic> source,
-    List<List<String>> paths,
-  ) {
-    for (final path in paths) {
-      final value = _valueAtPath(source, path);
-      if (value is Map<String, dynamic>) return value;
-    }
-
-    return null;
-  }
-
   double _firstDoubleFromKeys(Map<String, dynamic> source, List<String> keys) {
     for (final key in keys) {
       final value = source[key];
@@ -718,7 +603,11 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
                             index < filteredOrders.length;
                             index++
                           ) ...[
-                            _OrderHistoryCard(order: filteredOrders[index]),
+                            _OrderHistoryCard(
+                              order: filteredOrders[index],
+                              accessToken: widget.accessToken,
+                              dashboardCustomerId: widget.dashboardCustomerId,
+                            ),
                             if (index != filteredOrders.length - 1)
                               const SizedBox(height: 20),
                           ],
@@ -978,9 +867,15 @@ class _HistoryFilterChip extends StatelessWidget {
 }
 
 class _OrderHistoryCard extends StatelessWidget {
-  const _OrderHistoryCard({required this.order});
+  const _OrderHistoryCard({
+    required this.order,
+    required this.accessToken,
+    required this.dashboardCustomerId,
+  });
 
   final _OrderHistoryData order;
+  final String accessToken;
+  final String dashboardCustomerId;
 
   @override
   Widget build(BuildContext context) {
@@ -1064,6 +959,10 @@ class _OrderHistoryCard extends StatelessWidget {
                     builder: (context) => OrderDetailsPage(
                       order: OrderDetailsData(
                         orderId: order.orderId,
+                        customerId: order.customerId.isEmpty
+                            ? dashboardCustomerId
+                            : order.customerId,
+                        accessToken: accessToken,
                         customerName: order.customerName,
                         dateTime: order.dateTime,
                         status: order.status,
