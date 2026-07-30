@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../customer_card_data.dart';
+import 'order_history_page.dart';
 
 // Final confirmation screen shown after the delivery user taps
 // "Complete Delivery" on PaymentCollectionPage.
@@ -104,7 +105,7 @@ class DeliveryCompletedPage extends StatelessWidget {
                         const SizedBox(height: 60),
                         _CompletionActions(
                           onStartNewDelivery: () => _startNewDelivery(context),
-                          onViewHistory: () => _showHistoryPlaceholder(context),
+                          onViewHistory: () => _openOrderHistory(context),
                         ),
                       ],
                     ),
@@ -127,13 +128,10 @@ class DeliveryCompletedPage extends StatelessWidget {
     if (navigator.canPop()) navigator.pop();
   }
 
-  void _showHistoryPlaceholder(BuildContext context) {
-    // Placeholder action until a real order-history screen or route exists.
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('Order history is not available yet.')),
-      );
+  void _openOrderHistory(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (context) => const OrderHistoryPage()),
+    );
   }
 }
 
