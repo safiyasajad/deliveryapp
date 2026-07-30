@@ -136,7 +136,10 @@ class DeliveryCompletedPage extends StatelessWidget {
   void _openOrderHistory(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => OrderHistoryPage(accessToken: accessToken),
+        builder: (context) => OrderHistoryPage(
+          accessToken: accessToken,
+          dashboardCustomerId: customer.id,
+        ),
       ),
     );
   }
