@@ -1,8 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 class OrderDetailsData {
   const OrderDetailsData({
@@ -868,6 +872,8 @@ class _PaymentSummaryCard extends StatelessWidget {
 class _ReceiptActions extends StatelessWidget {
   const _ReceiptActions();
 
+  static const _receiptAssetPath = 'assets/receipts/Invoice-000005.pdf';
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -876,8 +882,7 @@ class _ReceiptActions extends StatelessWidget {
           child: _ReceiptActionButton(
             icon: Icons.print_outlined,
             label: 'Receipt',
-            onTap: () =>
-                _showActionMessage(context, 'Receipt is not available yet.'),
+            onTap: () => _openReceiptPdf(context),
           ),
         ),
         const SizedBox(width: 20),
@@ -891,6 +896,27 @@ class _ReceiptActions extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _openReceiptPdf(BuildContext context) async {
+    try {
+      final receiptBytes = await rootBundle.load(_receiptAssetPath);
+      final tempDirectory = await getTemporaryDirectory();
+      final receiptFile = File('${tempDirectory.path}/Invoice-000005.pdf');
+
+      await receiptFile.writeAsBytes(
+        receiptBytes.buffer.asUint8List(),
+        flush: true,
+      );
+
+      final openResult = await OpenFilex.open(receiptFile.path);
+      if (openResult.type != ResultType.done && context.mounted) {
+        _showActionMessage(context, openResult.message);
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      _showActionMessage(context, 'Receipt PDF could not be opened.');
+    }
   }
 
   void _showActionMessage(BuildContext context, String message) {

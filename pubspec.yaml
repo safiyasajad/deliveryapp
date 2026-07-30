@@ -46,6 +46,14 @@ dependencies:
   # The login screen uses this package to POST email and password to /login.
   http: ^1.2.2
 
+  # Opens files with the platform's installed viewer. The receipt screen uses
+  # this to show the generated invoice PDF when the Receipt button is pressed.
+  open_filex: ^4.5.0
+
+  # Provides a writable temporary directory where bundled receipt PDFs can be
+  # copied before open_filex hands them to the operating system.
+  path_provider: ^2.1.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -72,6 +80,7 @@ flutter:
     # Registers the .env file as a Flutter asset so flutter_dotenv can read it
     # when the app starts.
     - .env
+    - assets/receipts/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
