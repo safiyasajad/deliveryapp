@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import 'view_recipt_page.dart';
+
 // Order history screen shown from the completed-delivery receipt flow.
 //
 // This page fetches order rows from:
@@ -215,23 +217,159 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       'delivery_status',
     ]);
 
+    final addressLine = _firstStringFromKeys(json, const [
+      'address',
+      'deliveryAddress',
+      'delivery_address',
+      'customerAddress',
+      'customer_address',
+      'addressLine1',
+      'address_line_1',
+      'street',
+    ]);
+
+    final addressCity = _firstStringFromKeys(json, const [
+      'city',
+      'state',
+      'province',
+      'postalCode',
+      'postal_code',
+      'zip',
+    ]);
+
+    final paymentMethod = _firstStringFromKeys(json, const [
+      'paymentMethod',
+      'payment_method',
+      'paymentType',
+      'payment_type',
+      'method',
+    ]);
+
+    final transactionId = _firstStringFromKeys(json, const [
+      'transactionId',
+      'transaction_id',
+      'paymentTransactionId',
+      'payment_transaction_id',
+      'referenceNo',
+      'reference_no',
+    ]);
+
+    final total = _firstDoubleFromKeys(json, const [
+      'total',
+      'totalAmount',
+      'total_amount',
+      'orderTotal',
+      'order_total',
+      'grandTotal',
+      'grand_total',
+      'netAmount',
+      'net_amount',
+      'amount',
+    ]);
+
     return _OrderHistoryData(
       orderId: orderId,
       customerName: customerName.isEmpty ? 'Unknown Customer' : customerName,
       dateTime: _parseDateTime(dateText),
-      total: _firstDoubleFromKeys(json, const [
-        'total',
-        'totalAmount',
-        'total_amount',
-        'orderTotal',
-        'order_total',
-        'grandTotal',
-        'grand_total',
-        'netAmount',
-        'net_amount',
-        'amount',
-      ]),
+      total: total,
       status: status.isEmpty ? 'DELIVERED' : status.toUpperCase(),
+      addressLine: addressLine.isEmpty ? 'No address available' : addressLine,
+      addressCity: addressCity,
+      paymentMethod: paymentMethod.isEmpty ? 'Cash' : paymentMethod,
+      transactionId: transactionId.isEmpty ? 'Not available' : transactionId,
+      items: _parseDeliveredItems(json, total),
+    );
+  }
+
+  List<OrderDetailsItem> _parseDeliveredItems(
+    Map<String, dynamic> json,
+    double orderTotal,
+  ) {
+    final rawItems = _firstListFromPaths(json, const [
+      ['products'],
+      ['items'],
+      ['orderItems'],
+      ['order_items'],
+      ['orderProducts'],
+      ['order_products'],
+      ['details'],
+      ['data', 'products'],
+      ['data', 'items'],
+      ['data', 'orderItems'],
+    ]);
+
+    final items = rawItems
+        .whereType<Map<String, dynamic>>()
+        .map(_deliveredItemFromJson)
+        .where((item) => item.name.isNotEmpty)
+        .toList();
+
+    if (items.isNotEmpty) return items;
+
+    return [
+      OrderDetailsItem(
+        name: 'Delivered Items',
+        quantity: 1,
+        unitPrice: orderTotal,
+        lineTotal: orderTotal,
+      ),
+    ];
+  }
+
+  OrderDetailsItem _deliveredItemFromJson(Map<String, dynamic> json) {
+    var name = _firstStringFromKeys(json, const [
+      'name',
+      'productName',
+      'product_name',
+      'itemName',
+      'item_name',
+      'title',
+      'description',
+    ]);
+
+    if (name.isEmpty) {
+      name = _firstStringFromNestedMap(
+        json,
+        const ['product', 'item'],
+        const ['name', 'productName', 'product_name', 'title'],
+      );
+    }
+
+    final quantity = _firstIntFromKeys(json, const [
+      'quantity',
+      'qty',
+      'selectedQuantity',
+      'selected_quantity',
+      'deliveredQuantity',
+      'delivered_quantity',
+    ]);
+
+    final unitPrice = _firstDoubleFromKeys(json, const [
+      'unitPrice',
+      'unit_price',
+      'price',
+      'sellingPrice',
+      'selling_price',
+      'rate',
+    ]);
+
+    final parsedLineTotal = _firstDoubleFromKeys(json, const [
+      'lineTotal',
+      'line_total',
+      'total',
+      'totalAmount',
+      'total_amount',
+      'amount',
+    ]);
+    final lineTotal = parsedLineTotal > 0
+        ? parsedLineTotal
+        : (quantity * unitPrice);
+
+    return OrderDetailsItem(
+      name: name,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      lineTotal: lineTotal,
     );
   }
 
@@ -308,6 +446,20 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
     }
 
     return 0;
+  }
+
+  int _firstIntFromKeys(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = source[key];
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      if (value is String) {
+        final parsed = int.tryParse(value.trim());
+        if (parsed != null) return parsed;
+      }
+    }
+
+    return 1;
   }
 
   Object? _valueAtPath(Map<String, dynamic> source, List<String> path) {
@@ -412,6 +564,11 @@ class _OrderHistoryData {
     required this.customerName,
     required this.dateTime,
     required this.total,
+    required this.addressLine,
+    required this.addressCity,
+    required this.paymentMethod,
+    required this.transactionId,
+    required this.items,
     this.status = 'DELIVERED',
   });
 
@@ -420,6 +577,11 @@ class _OrderHistoryData {
   final DateTime dateTime;
   final double total;
   final String status;
+  final String addressLine;
+  final String addressCity;
+  final String paymentMethod;
+  final String transactionId;
+  final List<OrderDetailsItem> items;
 }
 
 class _OrderHistoryHeader extends StatelessWidget {
@@ -689,11 +851,24 @@ class _OrderHistoryCard extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: () {
-                ScaffoldMessenger.of(context)
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(
-                    SnackBar(content: Text('Receipt for ${order.orderId}')),
-                  );
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => OrderDetailsPage(
+                      order: OrderDetailsData(
+                        orderId: order.orderId,
+                        customerName: order.customerName,
+                        dateTime: order.dateTime,
+                        status: order.status,
+                        addressLine: order.addressLine,
+                        addressCity: order.addressCity,
+                        items: order.items,
+                        total: order.total,
+                        paymentMethod: order.paymentMethod,
+                        transactionId: order.transactionId,
+                      ),
+                    ),
+                  ),
+                );
               },
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF003469),
