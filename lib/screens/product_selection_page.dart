@@ -383,6 +383,7 @@ class _ProductSelectionPageState extends State<ProductSelectionPage> {
         builder: (context) => PaymentCollectionPage(
           customer: widget.customer,
           selectedProducts: selectedProducts,
+          accessToken: widget.accessToken,
         ),
       ),
     );
